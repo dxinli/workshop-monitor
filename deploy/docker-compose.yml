@@ -3,8 +3,15 @@ services:
     image: eclipse-mosquitto:${MOSQUITTO_VERSION}
     ports:
       - "1883:1883"
+    environment:
+      # 选定 acl.grid / acl.internal，入口脚本按此复制到 /mosquitto/acl。
+      MQTT_TOPIC_SCHEME: ${MQTT_TOPIC_SCHEME:-grid}
+    # 入口脚本要 chown 容器内的 ACL 副本，故以 root 起容器、broker 仍降权到 mosquitto。
+    user: "0:0"
+    entrypoint: ["/mosquitto/config/entrypoint.sh"]
     volumes:
       - ./mosquitto:/mosquitto/config:ro
+      - mosquitto-data:/mosquitto/data
     restart: unless-stopped
 
   timescaledb:
@@ -27,3 +34,4 @@ services:
 
 volumes:
   timescale-data:
+  mosquitto-data:
