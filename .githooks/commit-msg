@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # commit-msg：校验提交信息格式。
-# 格式见 docs/03-编码/02-版本控制与持续集成.md §2
 set -uo pipefail
 
 msg_file=$1
@@ -28,7 +27,6 @@ if ! printf '%s' "$subject" | grep -qE "$pattern"; then
   feat(adapter): 接收段对补传报文置 backfill 标识
   fix(agent): 重启后序号从队列最大序号续接
 
-规则见 docs/03-编码/02-版本控制与持续集成.md §2
 EOF
   exit 1
 fi

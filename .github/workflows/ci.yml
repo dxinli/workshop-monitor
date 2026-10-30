@@ -2,9 +2,9 @@ name: ci
 
 on:
   pull_request:
-    branches: [develop, main, 'release/**', 'hotfix/**']
+    branches: [main, "release/**", "hotfix/**"]
   push:
-    branches: [develop, main]
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,7 +18,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.4'
+          go-version: "1.23.4"
           cache: true
 
       - name: go mod tidy 后工作区须干净
@@ -81,11 +81,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck --severity=error scripts/*.sh scripts/hooks/*
+          shellcheck --severity=error scripts/*.sh .githooks/*
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12.7'
+          python-version: "3.12.7"
 
       - name: 仿真件语法
         run: python -m compileall -q sim

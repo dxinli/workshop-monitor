@@ -20,7 +20,7 @@ Python 依赖：`pymodbus` 3.7.4、`fastapi` 0.115.5、`uvicorn` 0.32.1、`pydan
 ```bash
 make build           # 构建二进制与镜像
 make check           # 提交前总检查：verify + fmt + lint + test
-make hooks           # 安装 git 钩子（首次克隆后跑一次）
+make hooks           # 安装 git 钩子到 .githooks（首次克隆后跑一次）
 make verify          # 校验依赖版本与镜像标签一致
 make test            # 单元测试
 make vet             # 官方 go vet
@@ -57,7 +57,8 @@ sim/                    modbus-slave-sim · bypass-sim · wecom-mock
 tasks/                  任务单，一次会话一个文件
 config/                 terminals/ · thresholds.json · schema/
 deploy/                 docker-compose.yml · versions.env · mosquitto/ · timescaledb/init/ · node-red/ · grafana/
-scripts/                setup-pty.sh · preflight.sh · hooks/（commit-msg、pre-push）
+scripts/                setup-pty.sh · preflight.sh
+.githooks/              git 钩子：commit-msg · pre-push（\make hooks` 安装）`
 .github/workflows/      ci.yml（PR 与主干）· release.yml（v* tag）· integration.yml（手动）
 ```
 

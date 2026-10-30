@@ -36,7 +36,7 @@ check: verify tidy-check fmt-check vet lint test build-static
 			&& echo "compose 语法检查通过"; \
 	else echo "跳过 compose 语法检查（docker 不可用）"; fi
 	@if command -v shellcheck >/dev/null 2>&1; then \
-		shellcheck --severity=error scripts/*.sh scripts/hooks/* && echo "shellcheck 通过"; \
+		shellcheck --severity=error scripts/*.sh .githooks/* && echo "shellcheck 通过"; \
 	else echo "跳过 shellcheck（未安装）"; fi
 	@if command -v python >/dev/null 2>&1; then \
 		python -m compileall -q sim && echo "仿真件语法通过"; \
@@ -61,9 +61,9 @@ fmt-check:
 	@echo "格式检查通过"
 
 hooks:
-	git config core.hooksPath scripts/hooks
-	@chmod +x scripts/hooks/* 2>/dev/null || true
-	@echo "钩子已安装，路径 scripts/hooks"
+	git config core.hooksPath .githooks
+	@chmod +x .githooks/* 2>/dev/null || true
+	@echo "钩子已安装，路径 .githooks"
 
 build:
 	@mkdir -p $(BIN_DIR)
