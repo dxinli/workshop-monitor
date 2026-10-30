@@ -22,6 +22,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # init/01_schema.sql 用 \getenv 读取，建业务角色时不落明文到脚本
+      WORKSHOP_ADAPTER_PASSWORD: ${WORKSHOP_ADAPTER_PASSWORD}
+      WORKSHOP_DASHBOARD_PASSWORD: ${WORKSHOP_DASHBOARD_PASSWORD}
+      WORKSHOP_NOTIFY_PASSWORD: ${WORKSHOP_NOTIFY_PASSWORD}
+      WORKSHOP_READONLY_PASSWORD: ${WORKSHOP_READONLY_PASSWORD}
     volumes:
       - timescale-data:/var/lib/postgresql/data
       - ./timescaledb/init:/docker-entrypoint-initdb.d:ro
