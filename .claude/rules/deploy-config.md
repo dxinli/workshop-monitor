@@ -18,6 +18,11 @@ paths:
 
 ACL 变更需重载配置，不支持热生效。演示期固定 5 终端，新增终端走脚本。
 
+- 账号清单唯一来源是 `deploy/mosquitto/acl.<scheme>` 的 `user` 行，`scripts/gen-passwd.sh` 据此从 `.env` 生成口令文件
+- `MQTT_TOPIC_SCHEME` 在 compose 里选 `acl.grid` / `acl.internal`，由 `deploy/mosquitto/entrypoint.sh` 复制到容器内 `/mosquitto/acl`
+  - 不要直接把 ACL 挂到 `/mosquitto/acl`：`/mosquitto/config` 整目录只读，挂不进去；从版本库挂进去属主不对，2.0.20 会告警且后续版本拒绝加载
+- 验收用 `make verify-broker`。越权发布只在 `-V mqttv5` 下返回 `Not authorized`，3.1.1 的退出码是 0
+
 ## TimescaleDB
 
 ### 建表脚本

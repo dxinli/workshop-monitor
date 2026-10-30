@@ -1,4 +1,4 @@
-.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed verify-config preflight logs clean check hooks
+.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed verify-config preflight logs clean check hooks passwd verify-broker
 
 GO ?= go
 BIN_DIR := bin
@@ -35,6 +35,8 @@ help:
 	@echo "seed          从 config/ 生成种子数据并导入"
 	@echo "verify-config 配置校验 V-01~V-12"
 	@echo "preflight     部署后自检"
+	@echo "passwd        从 .env 生成 Mosquitto 口令文件"
+	@echo "verify-broker 003 验收：认证、授权、LWT、两套命名方案"
 	@echo "logs          跟随容器日志"
 
 # 与 .github/workflows/ci.yml 的 go + config + aux 三个 job 保持同一集。
@@ -128,7 +130,8 @@ lint-install:
 fmt:
 	$(GO) fmt ./...
 
-up:
+# 口令文件不入版本库，每次起栈前按 .env 重建，避免新克隆缺文件导致 broker 起不来。
+up: passwd
 	@test -f .env || { echo "缺少 .env，先执行 cp .env.example .env"; exit 1; }
 	$(COMPOSE) up -d
 
@@ -143,6 +146,12 @@ verify-config:
 
 preflight:
 	COMPOSE="$(COMPOSE)" ./scripts/preflight.sh
+
+passwd:
+	./scripts/gen-passwd.sh
+
+verify-broker:
+	./scripts/verify-broker.sh
 
 logs:
 	$(COMPOSE) logs -f
