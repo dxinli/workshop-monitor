@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main, 'release/**', 'hotfix/**']
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.4'
+          cache: true
+
+      - name: go mod tidy 后工作区须干净
+        run: |
+          go mod tidy
+          if [ -n "$(git status --porcelain -- go.mod go.sum)" ]; then
+            echo "go.mod 或 go.sum 未同步，请本地执行 go mod tidy 后提交"
+            git status --porcelain -- go.mod go.sum
+            exit 1
+          fi
+
+      - name: 格式
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "以下文件未格式化："
+            echo "$out"
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          # 与 Makefile 的 LINT_VERSION 保持一致，改一处必须改另一处
+          version: v2.15.0
+          args: --timeout=5m
+
+      - name: 单元测试
+        run: go test -race ./...
+
+      - name: 静态交付构建
+        run: |
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/edge-agent
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /dev/null ./cmd/proto-adapter
+
+  config:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 版本锁与 compose 语法
+        run: |
+          test -f deploy/versions.env || { echo "缺少 deploy/versions.env"; exit 1; }
+          if grep -rn "latest" deploy/ config/ 2>/dev/null; then
+            echo "发现 latest 浮动标签"
+            exit 1
+          fi
+          docker compose -f deploy/docker-compose.yml config -q
+          echo "配置检查通过"
+
+  aux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=error scripts/*.sh scripts/hooks/*
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.7'
+
+      - name: 仿真件语法
+        run: python -m compileall -q sim

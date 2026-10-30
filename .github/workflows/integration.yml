@@ -1,0 +1,50 @@
+name: integration
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备环境文件
+        run: cp .env.example .env
+
+      - name: 虚拟串口
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq socat
+          chmod +x scripts/setup-pty.sh
+          ./scripts/setup-pty.sh
+
+      - name: 启动全栈
+        run: |
+          docker compose -f deploy/docker-compose.yml \
+            --env-file deploy/versions.env --env-file .env up -d
+
+      - name: 等待服务就绪
+        run: |
+          for i in $(seq 1 60); do
+            if docker compose -f deploy/docker-compose.yml ps --status running timescaledb \
+               | grep -q timescaledb; then
+              echo "timescaledb 已就绪"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "timescaledb 未在 120 秒内就绪"
+          docker compose -f deploy/docker-compose.yml logs --tail 50
+          exit 1
+
+      - name: 部署后自检
+        run: COMPOSE="docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env" ./scripts/preflight.sh
+
+      - name: 失败时收集日志
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --tail 200
+
+      - name: 清理
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v

@@ -1,0 +1,115 @@
+# golangci-lint 配置（v2 schema）
+#
+# 原则：每个启用的 linter 必须能指回 CLAUDE.md 的一条规则，或属于「发现真 bug」的基线。
+# 纯风格类 linter 一律不开——它们会和 Done Check 的 Spec 轴打架（不实现 Spec 未要求的扩展点）。
+#
+# 运行：make lint
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # 关掉内置默认集，逐项手动开。
+  # 不写这行会继承工具作者每版选定的默认集，配置会随升级漂移。
+  default: none
+
+  enable:
+    # ── 映射到本仓规则 ────────────────────────────────
+    - errcheck    # Never Do：不要吞错误（_ = err）
+    - errorlint   # Must Follow：错误带上下文 %w，不用 == 比较哨兵
+    - depguard    # Must Follow：三条 import 边界
+    - funlen      # Must Follow：单函数 ≤ 50 行
+
+    # ── correctness 基线 ──────────────────────────────
+    # 不属于本仓特有规则，但抓的是真 bug 而非风格。
+    - govet       # 官方 vet：printf 格式、struct tag、不可达代码
+    - staticcheck # 空指针、不可能的断言、误用 duration、锁误用
+    - ineffassign # 赋值后从未读取，通常意味着写错了变量
+
+  settings:
+    # fmt 的三个打印函数返回 (n, error)，忽略是通行做法。
+    # 其余一律必须处理——这是「不要吞错误」的落点。
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+    # 与 CLAUDE.md「单函数 ≤ 50 行」逐字对齐。
+    # statements 设 -1 关掉，只按行数判定，避免两个阈值互相打架。
+    funlen:
+      lines: 50
+      statements: -1
+
+    depguard:
+      rules:
+        # 三条边界，对应 CLAUDE.md 的 Must Follow：
+        #   internal/agent ↔ internal/adapter 不得互相 import
+        #   ingest ↔ evaluate 不得互相 import（唯一连接是有界 channel）
+        #   sim 不 import internal；cmd 不 import sim
+        agent-no-adapter:
+          files:
+            - "internal/agent/**"
+            - "**/internal/agent/**"
+            - "cmd/edge-agent/**"
+            - "**/cmd/edge-agent/**"
+          deny:
+            - pkg: workshop-monitor/internal/adapter
+              desc: agent 与 adapter 不得互相 import，共享代码放 internal/model 或 internal/pkglog
+
+        adapter-no-agent:
+          files:
+            - "internal/adapter/**"
+            - "**/internal/adapter/**"
+            - "cmd/proto-adapter/**"
+            - "**/cmd/proto-adapter/**"
+          deny:
+            - pkg: workshop-monitor/internal/agent
+              desc: adapter 与 agent 不得互相 import，共享代码放 internal/model 或 internal/pkglog
+
+        ingest-no-evaluate:
+          files:
+            - "internal/adapter/ingest/**"
+            - "**/internal/adapter/ingest/**"
+          deny:
+            - pkg: workshop-monitor/internal/adapter/evaluate
+              desc: ingest 与 evaluate 只能经有界 channel 连接，不得直接 import
+
+        evaluate-no-ingest:
+          files:
+            - "internal/adapter/evaluate/**"
+            - "**/internal/adapter/evaluate/**"
+          deny:
+            - pkg: workshop-monitor/internal/adapter/ingest
+              desc: evaluate 与 ingest 只能经有界 channel 连接，不得直接 import
+
+        sim-no-internal:
+          files:
+            - "sim/**"
+            - "**/sim/**"
+          deny:
+            - pkg: workshop-monitor/internal
+              desc: 仿真件不得引用交付件
+
+        cmd-no-sim:
+          files:
+            - "cmd/**"
+            - "**/cmd/**"
+          deny:
+            - pkg: workshop-monitor/sim
+              desc: 交付件不得引用仿真件
+
+  exclusions:
+    # 显式置空，不继承任何预设排除集。
+    # std-error-handling 预设会把 defer f.Close() 这类 errcheck 报告静默排除，
+    # 与本仓「不要吞错误」直接冲突。
+    presets: []
+
+    rules:
+      # 表驱动测试天然超长。
+      # 只豁免 funlen，errcheck 不豁免——测试里吞错误同样是缺陷。
+      - path: _test\.go
+        linters:
+          - funlen

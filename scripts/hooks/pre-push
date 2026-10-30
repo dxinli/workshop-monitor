@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# pre-push：推送前跑 make check，与 CI 快速检查同一集。
+#
+# 缺工具时 fail-closed：宁可挡住推送，也不要给出"检查通过"的假象。
+# 确实要跳过，用 SKIP_CHECK=1 git push，并在 PR 里说明原因。
+set -uo pipefail
+
+if [ "${SKIP_CHECK:-0}" = "1" ]; then
+  echo "SKIP_CHECK=1，跳过推送前检查" >&2
+  exit 0
+fi
+
+missing=""
+for tool in make go gofmt git; do
+  command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
+done
+
+if [ -n "$missing" ]; then
+  cat >&2 <<EOF
+缺少工具：$missing
+
+推送前检查无法执行。二选一：
+  1. 装好上述工具后重推
+  2. SKIP_CHECK=1 git push 跳过（PR 里写明原因，CI 会补跑）
+EOF
+  exit 1
+fi
+
+echo "推送前检查：make check"
+if ! make check; then
+  cat >&2 <<'EOF'
+
+make check 未通过，推送已阻止。
+  修好后重推，或 SKIP_CHECK=1 git push 跳过（CI 会补跑）
+EOF
+  exit 1
+fi
+
+exit 0

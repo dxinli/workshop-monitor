@@ -1,0 +1,11 @@
+bin/
+*.exe
+.env
+*.log
+timescale-data/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+dist/
+coverage.out

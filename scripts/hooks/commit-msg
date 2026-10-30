@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# commit-msg：校验提交信息格式。
+# 格式见 docs/03-编码/02-版本控制与持续集成.md §2
+set -uo pipefail
+
+msg_file=$1
+subject=$(head -n1 "$msg_file")
+
+# 自动生成或工具生成的合并提交放行
+case "$subject" in
+  Merge\ *|Revert\ *|fixup!\ *|squash!\ *|"") exit 0 ;;
+esac
+
+types='feat|fix|chore'
+mods='agent|adapter|sim|deploy|config|docs'
+pattern="^(${types})\((${mods})\): .+"
+
+if ! printf '%s' "$subject" | grep -qE "$pattern"; then
+  cat >&2 <<EOF
+提交信息格式不符：
+  $subject
+
+要求：<类型>(<模块>): <摘要>
+  类型：feat / fix / chore
+  模块：agent / adapter / sim / deploy / config / docs
+
+示例：
+  feat(adapter): 接收段对补传报文置 backfill 标识
+  fix(agent): 重启后序号从队列最大序号续接
+
+规则见 docs/03-编码/02-版本控制与持续集成.md §2
+EOF
+  exit 1
+fi
+
+# 摘要长度：目标 50 字，超过 72 字符硬拦。
+# 用 wc -m 按字符计（awk length 在 C locale 下按字节算，中文会被误判）。
+len=$(printf '%s' "$subject" | wc -m | tr -d ' ')
+if [ "$len" -gt 72 ]; then
+  echo "提交摘要过长（${len} 字符，上限 72）：首行是唯一索引，目标 50 字以内" >&2
+  exit 1
+fi
+
+# 句末不加句号
+case "$subject" in
+  *. | *。) echo "提交摘要末尾不加句号" >&2; exit 1 ;;
+esac
+
+exit 0
