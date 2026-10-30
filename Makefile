@@ -4,10 +4,19 @@ GO ?= go
 BIN_DIR := bin
 # lint 工具版本锁补丁号，与「版本一律锁补丁号」一致。
 # 换版本要同步 .github/workflows/ci.yml 的 golangci-lint version 字段。
-# 若首次运行报 "Go language version used to build golangci-lint is lower than
-# the targeted Go version"，说明本机 go 比该版本新，降到 v2.4.0 再试。
 LINT_VERSION := v2.15.0
-LINT ?= golangci-lint
+# golangci-lint 的安装落点，按 go 自己的规则推：
+#   GOBIN 已设 → 直接用它（它本身就是放二进制的目录，不再拼 /bin）
+#   GOBIN 空   → $(go env GOPATH)/bin
+#   GOBIN、GOPATH 都取不到（没装 go）→ $(HOME)/go/bin
+# 注意 GOPATH/bin 默认不在 PATH 上——这是「明明装了却报未找到」的第一原因。
+GOPATH_DIR   := $(or $(shell $(GO) env GOPATH 2>/dev/null),$(HOME)/go)
+LINT_BIN_DIR := $(or $(shell $(GO) env GOBIN 2>/dev/null),$(GOPATH_DIR)/bin)
+
+# 位置解析：PATH 里优先，其次安装落点。两者都没有时落在落点上，由 lint 目标报错。
+# 命令行或环境变量覆盖优先：make lint LINT=/usr/local/bin/golangci-lint
+LINT := $(or $(shell command -v golangci-lint 2>/dev/null),$(LINT_BIN_DIR)/golangci-lint)
+
 COMPOSE := docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env
 
 help:
@@ -85,17 +94,36 @@ vet:
 # golangci-lint：配置见 .golangci.yml。
 # 缺二进制时 fail-closed——没有 lint 就报「通过」比不 lint 更糟。
 lint:
-	@command -v $(LINT) >/dev/null 2>&1 || { \
-		echo "未找到 $(LINT)。安装："; \
+	@test -x "$(LINT)" || { \
+		echo "未找到可执行的 golangci-lint：$(LINT)"; \
+		echo ""; \
+		echo "本机 go                : $$($(GO) version 2>/dev/null || echo 未安装)"; \
+		echo "PATH 中的 golangci-lint: $$(command -v golangci-lint 2>/dev/null || echo 没有)"; \
+		echo "安装目录               : $(LINT_BIN_DIR)"; \
+		echo "该目录在 PATH 上       : $$(printf '%s\n' "$$PATH" | tr ':' '\n' | grep -qxF '$(LINT_BIN_DIR)' && echo 是 || echo 否)"; \
+		echo ""; \
+		echo "装法一（推荐，不依赖本机 Go 版本）："; \
+		echo "  make lint-install"; \
+		echo "装法二（需 Go >= 1.26 工具链，内网或 GOTOOLCHAIN=local 会失败）："; \
 		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION)"; \
-		echo "或设置 LINT=/path/to/golangci-lint"; \
+		echo "已经装在别处："; \
+		echo "  make lint LINT=/path/to/golangci-lint"; \
 		exit 1; }
+	@echo "lint 版本：$$($(LINT) --version 2>&1 | head -n1)"
 	$(LINT) run ./...
 
-# 一次性安装 lint 工具到 GOPATH/bin
 lint-install:
-	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION)
-	@echo "已安装 $(LINT_VERSION) 到 $$($(GO) env GOPATH)/bin"
+	@command -v curl >/dev/null 2>&1 || { echo "需要 curl 下载预编译包"; exit 1; }
+	@mkdir -p "$(LINT_BIN_DIR)"
+	@echo "下载 golangci-lint $(LINT_VERSION) → $(LINT_BIN_DIR)"
+	@curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+		| sh -s -- -b "$(LINT_BIN_DIR)" $(LINT_VERSION)
+	@if [ -x "$(LINT_BIN_DIR)/golangci-lint" ]; then \
+		echo "已安装：$(LINT_BIN_DIR)/golangci-lint"; \
+		"$(LINT_BIN_DIR)/golangci-lint" --version 2>&1 | head -n1; \
+	else \
+		echo "安装后仍找不到 $(LINT_BIN_DIR)/golangci-lint，检查该目录写权限"; exit 1; \
+	fi
 
 fmt:
 	$(GO) fmt ./...

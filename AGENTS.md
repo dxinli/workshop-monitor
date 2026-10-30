@@ -143,9 +143,10 @@ collectTime    backfill    debounce    dedupeKey
 
 1. 读 `tasks/00-INDEX.md`，按依赖挑一个状态为「待办」且阻塞已清的
 2. 读该任务单的 `## 加载` 段，只读它列出的规则来源与 rules
-3. 按下面 Testing 段在 seam 上做红-绿，**一次会话只做一份任务单**
-4. 按 Done Check 两轴各过一遍，把 INDEX 里该行状态改成「已完成」
-5. `make check` 通过后提交到当前 `feat/*` 分支，开 PR 合入 `develop`
+3. 按照 [Git](#Git) Flow 的方式管理分支
+4. 按下面 Testing 段在 seam 上做红-绿，**一次会话只做一份任务单**
+5. 按 Done Check 两轴各过一遍，把 INDEX 里该行状态改成「已完成」
+6. `make check` 通过后提交到当前 `feat/*` 分支，开 PR 合入 `main`
 
 没有任务单覆盖的改动，先建任务单再动手。新建任务单读 `tasks/_TEMPLATE.md`，不要照抄已有任务单——它们的「加载」段是按各自内容填的。
 
@@ -189,7 +190,7 @@ collectTime    backfill    debounce    dedupeKey
 **Standards —— 是否符合本仓规范**
 
 - [ ] `make check` 通过
-- [ ] 在 `feat/*` 分支上，未直接提交到 `develop` 或 `main`
+- [ ] 在 `feat/*` 分支上，未直接提交到 `main`
 - [ ] 失败路径不产生 0 值、不沿用旧值
 - [ ] 新增重试已进重试次数表
 - [ ] 改动涉及的 seam 有测试，且未 mock 内部协作者
