@@ -1,0 +1,38 @@
+# ACL —— internal 命名方案（MQTT_TOPIC_SCHEME=internal）
+#
+# 主题形如 /workshop/{esn}/{data|event|status}/up，与 grid 同形，只换前缀。
+# 终端账号只持有自己三段主题的写权限，读权限一概不给；
+# 接入服务账号只读全部上行，不持有任何写权限。
+#
+# 本文件是账号清单的唯一来源：scripts/gen-passwd.sh 从 `user` 行取账号名，
+# 新增终端时在这里加一段再重跑脚本，口令文件随之重建。
+
+# 接入服务：订阅全部上行。不给写。
+user workshop_adapter
+topic read /workshop/#
+
+# 终端：只能写自己的 data / event / status。LWT 也走 status，无需额外授权。
+user ESN-ZX-0001
+topic write /workshop/ESN-ZX-0001/data/up
+topic write /workshop/ESN-ZX-0001/event/up
+topic write /workshop/ESN-ZX-0001/status/up
+
+user ESN-ZX-0002
+topic write /workshop/ESN-ZX-0002/data/up
+topic write /workshop/ESN-ZX-0002/event/up
+topic write /workshop/ESN-ZX-0002/status/up
+
+user ESN-ZX-0003
+topic write /workshop/ESN-ZX-0003/data/up
+topic write /workshop/ESN-ZX-0003/event/up
+topic write /workshop/ESN-ZX-0003/status/up
+
+user ESN-ZX-0004
+topic write /workshop/ESN-ZX-0004/data/up
+topic write /workshop/ESN-ZX-0004/event/up
+topic write /workshop/ESN-ZX-0004/status/up
+
+user ESN-ZX-0005
+topic write /workshop/ESN-ZX-0005/data/up
+topic write /workshop/ESN-ZX-0005/event/up
+topic write /workshop/ESN-ZX-0005/status/up
