@@ -39,10 +39,21 @@ help:
 
 # 与 .github/workflows/ci.yml 的 go + config + aux 三个 job 保持同一集。
 # 两边任一增删检查项，必须同步改另一边。
+#
+# compose 语法检查补的是 .env.example，不是 .env：.env 不进版本库，CI 里没有。
+# compose 遇到未定义变量只告警不报错，于是「变量名写错」在本地和 CI 都不会暴露。
+# 这里把该告警升为失败：compose 引用的每个变量都必须在 .env.example 里有同名键。
 check: verify tidy-check fmt-check vet lint test build-static
 	@if command -v docker >/dev/null 2>&1; then \
-		docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env config -q \
-			&& echo "compose 语法检查通过"; \
+		out=$$(docker compose -f deploy/docker-compose.yml \
+			--env-file deploy/versions.env --env-file .env.example config -q 2>&1); \
+		if printf '%s' "$$out" | grep -q 'is not set'; then \
+			echo "compose 引用了 .env.example 里没有的变量："; \
+			printf '%s\n' "$$out" | grep 'is not set'; \
+			exit 1; \
+		fi; \
+		if [ -n "$$out" ]; then echo "$$out"; exit 1; fi; \
+		echo "compose 语法检查通过"; \
 	else echo "跳过 compose 语法检查（docker 不可用）"; fi
 	@if command -v shellcheck >/dev/null 2>&1; then \
 		shellcheck --severity=error scripts/*.sh .githooks/* && echo "shellcheck 通过"; \

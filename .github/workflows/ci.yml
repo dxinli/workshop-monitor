@@ -69,7 +69,15 @@ jobs:
             echo "发现 latest 浮动标签"
             exit 1
           fi
-          docker compose -f deploy/docker-compose.yml config -q
+          # .env 不进版本库，用 .env.example 补齐变量；引用了模板里没有的变量即失败
+          out=$(docker compose -f deploy/docker-compose.yml \
+            --env-file deploy/versions.env --env-file .env.example config -q 2>&1)
+          if printf '%s' "$out" | grep -q 'is not set'; then
+            echo "compose 引用了 .env.example 里没有的变量："
+            printf '%s\n' "$out" | grep 'is not set'
+            exit 1
+          fi
+          if [ -n "$out" ]; then echo "$out"; exit 1; fi
           echo "配置检查通过"
 
   aux:
