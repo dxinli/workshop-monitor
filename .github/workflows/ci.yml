@@ -108,3 +108,9 @@ jobs:
 
       - name: 仿真件语法
         run: python -m compileall -q sim
+
+      - name: 仿真件单元测试
+        run: |
+          python -m venv .venv-sim
+          .venv-sim/bin/pip install -q -r sim/modbus-slave-sim/requirements.txt pytest
+          .venv-sim/bin/python -m pytest sim/modbus-slave-sim -q

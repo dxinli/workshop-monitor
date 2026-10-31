@@ -1,0 +1,87 @@
+{
+  "task": "004 仿真链路与点表核对",
+  "generatedAt": "2026-10-31T14:58:28+0800",
+  "pointCheck": {
+    "rows": 140,
+    "mismatches": 0
+  },
+  "cases": [
+    {
+      "name": "逐点读取 140 个测点，寄存器地址与点表一一对应",
+      "passed": true,
+      "detail": {
+        "rows": 140,
+        "mismatches": 0,
+        "csv": "docs/evidence/004/point_check.csv"
+      }
+    },
+    {
+      "name": "10 条总线各自独立、从站 1~5 不串号",
+      "passed": true,
+      "detail": {
+        "busCount": 10,
+        "distinctBuses": 10,
+        "slaveValueCollisions": [],
+        "problems": []
+      }
+    },
+    {
+      "name": "运行期改值接口生效，下一次读取读到新值",
+      "passed": true,
+      "detail": {
+        "bus": "ESN-ZX-0001.A",
+        "slaveAddr": 2,
+        "address": 0,
+        "before": 1026,
+        "written": 625,
+        "after": 625,
+        "neighbourBus": 1208,
+        "multiRegister": {
+          "pointCode": "ep_forward",
+          "expectedRaw": 98304,
+          "readRaw": 98304
+        }
+      }
+    },
+    {
+      "name": "三类协议层异常可注入：超时 / 异常码 0x83·0x84 / CRC 错",
+      "passed": true,
+      "detail": {
+        "timeout": {
+          "kind": "timeout",
+          "elapsedMs": 601,
+          "noFrame": true
+        },
+        "exception_0x83": {
+          "kind": "exception",
+          "functionCode": 131,
+          "exceptionCode": 2,
+          "crcOk": true
+        },
+        "exception_0x84": {
+          "kind": "exception",
+          "functionCode": 132,
+          "exceptionCode": 4,
+          "frame": "01840442c3"
+        },
+        "crc": {
+          "kind": "crc",
+          "frameLength": 9,
+          "crcOk": false,
+          "payloadLooksValid": "0304"
+        },
+        "restored": {
+          "kind": "ok"
+        }
+      }
+    },
+    {
+      "name": "sim/ 不 import internal/，cmd/ 不 import sim/",
+      "passed": true,
+      "detail": {
+        "problems": []
+      }
+    }
+  ],
+  "passed": true
+}

@@ -33,6 +33,9 @@ make seed            # 导入 deploy/timescaledb/init/02_seed.sql
 make seed-sql        # 从 config/ 重新生成 02_seed.sql（改配置后跑）
 make verify-config   # 配置校验 V-01~V-11，逐条造坏配置验证报错内容
 make preflight       # 部署后 12 项自检
+make sim-pty         # 建 10 对虚拟串口，端点表写到 .pty/
+make sim-test        # 仿真件单元测试（需 .venv-sim）
+make sim-up          # 起 Modbus 从站模拟器
 make logs            # 跟随全部容器日志
 
 # 单组件调试
@@ -58,7 +61,7 @@ internal/adapter/state/      active 活动告警集合 · counters 去抖计数
 internal/config/        点表 / 阈值 / 主题模板的载入、V-01~V-11 校验、种子 SQL 生成
 internal/model/         与接口规范一一对应的结构体，无方法无校验
 internal/pkglog/        统一日志字段
-sim/                    modbus-slave-sim · bypass-sim · wecom-mock
+sim/                    modbus-slave-sim · bypass-sim · wecom-mock（Python，不进交付镜像）
 tasks/                  任务单，一次会话一个文件
 config/                 terminals/ · thresholds.json · topics.json · schema/
 deploy/                 docker-compose.yml · versions.env · mosquitto/ · timescaledb/init/ · node-red/ · grafana/

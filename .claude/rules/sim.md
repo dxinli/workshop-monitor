@@ -44,7 +44,8 @@ paths:
 
 异常注入必须是**协议层真实异常**（超时、异常码 0x83/0x84、CRC 错），不是返回错误值。返回错误值验证的是应用层容错，不是通信容错。
 
-控制接口 `POST /api/registers` 走 `127.0.0.1:8080`，不对公网暴露。
+控制接口按接口规范 §12.1 的路径式接口实现，走 `127.0.0.1:8080`，不对公网暴露。
+路径里的总线键是 `{terminalId}/{busId}`：`busId` 只有 `A` / `B`，不带终端时 10 条总线会塌缩成 2 条。
 
 ## 旁路构造器
 
@@ -65,12 +66,16 @@ paths:
 
 ## 部署
 
-走 Compose `sim` profile，与 `core` 分开启动。单实例常驻内存 ≤ 100 MB。
+模拟器最终走 Compose `sim` profile，与 `core` 分开启动；单实例常驻内存 ≤ 100 MB。
+004 交付的是宿主机 venv 形态（`sim/modbus-slave-sim/README.md`），Compose 服务
+与镜像随首次需要容器化的任务补齐，偏差登记在 `tasks/004-仿真链路与点表核对.md`。
 
 ```bash
-docker compose --profile sim up modbus-slave-sim
-curl -X POST localhost:8080/api/registers \
-  -d '{"busId":"A","slaveAddr":1,"addr":0,"value":625}'
+scripts/setup-pty.sh                       # 生成 10 对 pty 与端点表
+.venv/bin/python sim/modbus-slave-sim/main.py \
+  --config config/terminals --ports .pty/ports.json
+curl -X PUT localhost:8080/api/v1/reg/ESN-ZX-0001/A/1/0 \
+  -H 'Content-Type: application/json' -d '{"value":625}'
 ```
 
 ## 自检

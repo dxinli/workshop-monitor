@@ -1,4 +1,4 @@
-.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker
+.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker sim-pty sim-test sim-up
 
 GO ?= go
 BIN_DIR := bin
@@ -40,6 +40,9 @@ help:
 	@echo "passwd        从 .env 生成 Mosquitto 口令文件"
 	@echo "verify-broker 003 验收：认证、授权、LWT、两套命名方案"
 	@echo "logs          跟随容器日志"
+	@echo "sim-pty       建 10 对虚拟串口，端点表写到 .pty/"
+	@echo "sim-test      仿真件单元测试（需 sim/modbus-slave-sim 的 venv）"
+	@echo "sim-up        起 Modbus 从站模拟器（需先 sim-pty）"
 
 # 与 .github/workflows/ci.yml 的 go + config + aux 三个 job 保持同一集。
 # 两边任一增删检查项，必须同步改另一边。
@@ -65,6 +68,9 @@ check: verify tidy-check fmt-check vet lint test build-static config-check
 	@if command -v python >/dev/null 2>&1; then \
 		python -m compileall -q sim && echo "仿真件语法通过"; \
 	else echo "跳过仿真件语法检查（未安装 python）"; fi
+	@if [ -x "$(SIM_PY)" ]; then \
+		$(SIM_PY) -m pytest sim/modbus-slave-sim -q || exit 1; \
+	else echo "跳过仿真件单元测试（无 .venv-sim）"; fi
 	@echo "check 通过"
 
 tidy-check:
@@ -194,6 +200,26 @@ verify-broker:
 
 logs:
 	$(COMPOSE) logs -f
+
+# 仿真件的 Python 依赖装在 .venv-sim（与 CI 同名），不进交付镜像。
+# 缺 venv 时 fail-closed：不跑测试却报「通过」比不跑更糟。
+SIM_PY := .venv-sim/bin/python
+
+sim-pty:
+	./scripts/setup-pty.sh
+
+sim-test:
+	@test -x "$(SIM_PY)" || { \
+		echo "缺少 $(SIM_PY)，先执行："; \
+		echo "  python3.12 -m venv .venv-sim"; \
+		echo "  .venv-sim/bin/pip install -r sim/modbus-slave-sim/requirements.txt pytest"; \
+		exit 1; }
+	$(SIM_PY) -m pytest sim/modbus-slave-sim -q
+
+sim-up:
+	@test -f .pty/ports.json || { echo "缺少 .pty/ports.json，先执行 make sim-pty"; exit 1; }
+	@test -x "$(SIM_PY)" || { echo "缺少 $(SIM_PY)，见 make sim-test 的提示"; exit 1; }
+	$(SIM_PY) sim/modbus-slave-sim/main.py --config config/terminals --ports .pty/ports.json
 
 clean:
 	rm -rf $(BIN_DIR)
