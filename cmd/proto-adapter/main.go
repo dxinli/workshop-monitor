@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"workshop-monitor/internal/adapter/evaluate"
 	"workshop-monitor/internal/adapter/ingest"
 	"workshop-monitor/internal/config"
 )
@@ -56,16 +57,16 @@ func run(configPath string) error {
 	}
 	defer pool.Close()
 
-	pipeline := ingest.NewPipeline(router, ingest.NewPGSink(pool), ingest.DefaultRetryPolicy())
-	// 巡检周期取采集周期：判离线的窗口是 3 个周期，巡检再快也只是重复判定。
-	pipeline.WithTermState(ingest.NewTermState(ingest.TermStateConfig{
-		OfflinePeriods:  3,
-		CollectInterval: time.Duration(cfg.CollectIntervalMs) * time.Millisecond,
-	}), cfg.CollectIntervalMs/1000)
+	// 判定段必须在订阅之前重建活动集合并载入阈值：顺序反了，
+	// 订阅后立刻到达的数据会对已告警测点重复拉响，制造假告警风暴。
+	evalDeps, err := buildEvaluate(ctx, cfg.Queue.Capacity, evaluate.NewPGStore(pool))
+	if err != nil {
+		return err
+	}
+	startEvaluate(ctx, evalDeps)
 
-	go sweepLoop(ctx, pipeline, cfg.CollectIntervalMs)
-
-	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password), newHandler(pipeline))
+	pipeline := newPipeline(ctx, cfg, router, pool)
+	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password), newHandler(pipeline, evalDeps))
 	if err != nil {
 		return err
 	}
@@ -77,8 +78,41 @@ func run(configPath string) error {
 
 	<-ctx.Done()
 	sub.Disconnect(250)
-	fmt.Println("收到退出信号，已断开订阅")
+	fmt.Printf("收到退出信号，已断开订阅；判定段 %s\n", describe(evalDeps))
 	return nil
+}
+
+// startEvaluate 启动判定段的三个后台协程：队列消费、通知投递、阈值热加载。
+//
+// 每个协程只报错不退出：告警漏判的代价远大于错误日志刷屏，
+// 而进程重启会丢掉去抖计数与活动集合，比带病运行更糟。
+func startEvaluate(ctx context.Context, deps *evaluateDeps) {
+	go deps.queue.Run(ctx, deps.eval, func(err error) {
+		logErr("warn", "告警判定失败", err)
+	})
+	if deps.notify != nil {
+		go deps.notify.Run(ctx)
+	}
+	go deps.eval.ReloadLoop(ctx, 60*time.Second, func(err error) {
+		logErr("warn", "阈值重载失败，沿用上一份快照", err)
+	})
+	go dropWatcher(ctx, deps)
+}
+
+func logErr(level, msg string, err error) {
+	fmt.Fprintf(os.Stderr, "level=%s svc=adapter inst=adapter msg=%q err=%q\n", level, msg, err.Error())
+}
+
+// newPipeline 组装接收段。巡检周期取采集周期：
+// 判离线的窗口是 3 个周期，巡检再快也只是重复判定。
+func newPipeline(ctx context.Context, cfg *config.Adapter, router *ingest.Router, pool *pgxpool.Pool) *ingest.Pipeline {
+	p := ingest.NewPipeline(router, ingest.NewPGSink(pool), ingest.DefaultRetryPolicy())
+	p.WithTermState(ingest.NewTermState(ingest.TermStateConfig{
+		OfflinePeriods:  3,
+		CollectInterval: time.Duration(cfg.CollectIntervalMs) * time.Millisecond,
+	}), cfg.CollectIntervalMs/1000)
+	go sweepLoop(ctx, p, cfg.CollectIntervalMs)
+	return p
 }
 
 // buildRouter 由主题模板构造路由与订阅通配。两者必须来自同一份模板，否则会订阅到解析不了的主题。
@@ -135,10 +169,16 @@ func sweepLoop(ctx context.Context, p *ingest.Pipeline, intervalMs int) {
 
 // newHandler 把 Pipeline 包成订阅回调。失败只记日志，不中断订阅——
 // 单条报文出错不该让整个接收段停摆。
-func newHandler(p *ingest.Pipeline) func(context.Context, string, []byte) error {
+//
+// 投递判定只在入库成功后发生：入库失败时上层会把整条消息当失败处理，
+// 此时把读数送进判定队列会让「没落库的数据参与告警」，重投时还会再判一次。
+func newHandler(p *ingest.Pipeline, deps *evaluateDeps) func(context.Context, string, []byte) error {
 	return func(ctx context.Context, topic string, payload []byte) error {
 		res, err := p.Handle(ctx, topic, payload)
 		logResult(res, err)
+		if err == nil {
+			dispatch(deps, res)
+		}
 		return err
 	}
 }
