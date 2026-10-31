@@ -1,0 +1,170 @@
+{
+  "configVersion": "1.0.0",
+  "rules": [
+    {
+      "id": "TH-01",
+      "pointCodes": ["motor_temp"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 85,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-02",
+      "pointCodes": ["motor_temp"],
+      "alarmType": "HIGH_HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 105,
+      "level": 3,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-03",
+      "pointCodes": ["motor_vib"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 4.5,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-04",
+      "pointCodes": ["motor_vib"],
+      "alarmType": "HIGH_HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 11.2,
+      "level": 3,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-05",
+      "pointCodes": ["ia", "ib", "ic"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 80,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-06",
+      "pointCodes": ["ia", "ib", "ic"],
+      "alarmType": "HIGH_HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 100,
+      "level": 3,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-07",
+      "pointCodes": ["uab"],
+      "alarmType": "LOW_LIMIT",
+      "operator": "<",
+      "thresholdValue": 342,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-08",
+      "pointCodes": ["uab"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 418,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-09",
+      "pointCodes": ["env_temp"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 35,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-10",
+      "pointCodes": ["env_humi"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 80,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-11",
+      "pointCodes": ["air_pressure"],
+      "alarmType": "LOW_LIMIT",
+      "operator": "<",
+      "thresholdValue": 0.45,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-12",
+      "pointCodes": ["air_pressure"],
+      "alarmType": "HIGH_LIMIT",
+      "operator": ">",
+      "thresholdValue": 0.75,
+      "level": 2,
+      "debounceCount": 3,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-13",
+      "pointCodes": ["door"],
+      "alarmType": "STATE_ALARM",
+      "operator": ">=",
+      "thresholdValue": 1,
+      "level": 3,
+      "debounceCount": 0,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-14",
+      "pointCodes": ["estop"],
+      "alarmType": "STATE_ALARM",
+      "operator": ">=",
+      "thresholdValue": 1,
+      "level": 4,
+      "debounceCount": 0,
+      "terminalId": "",
+      "busId": ""
+    },
+    {
+      "id": "TH-15",
+      "pointCodes": ["light_curtain"],
+      "alarmType": "STATE_ALARM",
+      "operator": ">=",
+      "thresholdValue": 1,
+      "level": 4,
+      "debounceCount": 0,
+      "terminalId": "",
+      "busId": ""
+    }
+  ]
+}

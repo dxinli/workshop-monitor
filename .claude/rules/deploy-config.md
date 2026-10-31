@@ -94,8 +94,16 @@ Grafana 不得授予写权限。写操作只从 Dashboard 一个出口出。
 |---|---|---|
 | 终端与点表 | `config/terminals/ESN-ZX-000N.json` | 启动读取，改后重启 |
 | 告警阈值 | `config/thresholds.json` | 启动载入，改后 60 秒内生效 |
+| 主题模板 | `config/topics.json` | 重启 agent 与 adapter |
 | 工况预设 | `config/scenes.json` | 不入库，模拟器启动读取 |
 | 校验 schema | `config/schema/` | 与上表同步更新 |
+
+主题字符串的唯一来源是 `config/topics.json`，代码里不出现 `/edge/` 字面量。
+两套方案同形、仅前缀不同（`grid` 用 `/edge/`，`internal` 用 `/workshop/`），
+`deploy/mosquitto/acl.<scheme>` 必须与它逐条一致——`make verify-config` 会比对。
+
+校验与种子共用 `cmd/config-tool`，规则在 `internal/config`。改校验规则时同时改这里与
+`docs/02-详细设计说明书.md` §6.2，不要只改代码。
 
 ### 校验规则
 

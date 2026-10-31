@@ -29,12 +29,15 @@ make lint-install    # 安装 golangci-lint
 make fmt             # 格式化
 make up              # 启动全栈
 make down            # 停止全栈
-make seed            # 从 config/ 生成种子数据并导入
-make verify-config   # 配置校验 V-01~V-12
+make seed            # 导入 deploy/timescaledb/init/02_seed.sql
+make seed-sql        # 从 config/ 重新生成 02_seed.sql（改配置后跑）
+make verify-config   # 配置校验 V-01~V-11，逐条造坏配置验证报错内容
 make preflight       # 部署后 12 项自检
 make logs            # 跟随全部容器日志
 
 # 单组件调试
+go run ./cmd/config-tool verify            # 等价于 make verify-config 的校验部分
+go run ./cmd/config-tool seed -out /tmp/02_seed.sql
 go run ./cmd/edge-agent    -config config/terminals/ESN-ZX-0001.json
 go run ./cmd/proto-adapter -config config/adapter.toml
 docker compose --profile sim up modbus-slave-sim
@@ -47,17 +50,19 @@ CONTEXT.md              术语表，只放领域语言，不放实现
 CLAUDE.md               本文件
 cmd/edge-agent/         入口：参数解析 + 装配，不含业务逻辑
 cmd/proto-adapter/      入口：同上
+cmd/config-tool/        入口：配置校验与种子生成（verify / seed）
 internal/agent/         poller 轮询 · modbus 帧 · codec 换算 · mqttsink 上报 · cache 队列 · health
 internal/adapter/ingest/     router · codec_* · idem 幂等 · sink_pg 投影 · termstate 状态
 internal/adapter/evaluate/   queue · threshold · debounce · statemachine · notify · alarm_repo
 internal/adapter/state/      active 活动告警集合 · counters 去抖计数
+internal/config/        点表 / 阈值 / 主题模板的载入、V-01~V-11 校验、种子 SQL 生成
 internal/model/         与接口规范一一对应的结构体，无方法无校验
 internal/pkglog/        统一日志字段
 sim/                    modbus-slave-sim · bypass-sim · wecom-mock
 tasks/                  任务单，一次会话一个文件
-config/                 terminals/ · thresholds.json · schema/
+config/                 terminals/ · thresholds.json · topics.json · schema/
 deploy/                 docker-compose.yml · versions.env · mosquitto/ · timescaledb/init/ · node-red/ · grafana/
-scripts/                setup-pty.sh · preflight.sh
+scripts/                setup-pty.sh · preflight.sh · verify-config.sh · render-topics.sh
 .githooks/              git 钩子：commit-msg · pre-push（\make hooks` 安装）`
 .github/workflows/      ci.yml（PR 与主干）· release.yml（v* tag）· integration.yml（手动）
 ```
@@ -88,7 +93,9 @@ collectTime    backfill    debounce    dedupeKey
 ## Must Follow
 
 - `cmd/` 只做参数解析、依赖装配、启动调用。
-- `internal/agent` 与 `internal/adapter` 不得互相 import。共享代码只放 `internal/model`、`internal/pkglog`。
+- `internal/agent` 与 `internal/adapter` 不得互相 import。跨侧共享代码只放 `internal/model`、`internal/pkglog`；
+  `internal/config` 是两侧都要用的配置载入与校验，允许被 `internal/agent`、`internal/adapter` 与 `cmd/` 引用，
+  但它不 import 任何业务包，也不做 IO 以外的判定。
 - `internal/adapter/ingest` 与 `internal/adapter/evaluate` 不得互相 import，唯一连接是有界 channel。
 - `internal/model` 只放结构体，不含方法。
 - `sim/` 不 import `internal/`；`cmd/` 不 import `sim/`。
@@ -104,7 +111,7 @@ collectTime    backfill    debounce    dedupeKey
 - 错误带上下文：`fmt.Errorf("读取总线 %s 从站 %d: %w", busId, addr, err)`。
 - 重试必须有次数与间隔：Modbus 读超时 2 次、CRC 1 次、DB 写 3 次（立即/1s/5s）、通知 4 次（立即/1s/5s/15s）。
 
-上面四条有机器兜底，写错了 `make lint` 会拦：三条 import 边界（`depguard`）、单函数 ≤ 50 行（`funlen`）、错误吞掉（`errcheck`）、错误不带 `%w`（`errorlint`）。其余各条仍靠自觉。要新增机器检查，先在 `.golangci.yml` 加规则并在这里写出对应条目，两边不要脱节。
+上面四条有机器兜底，写错了 `make lint` 会拦：import 边界（`depguard`，含 `internal/config` 不得反向依赖业务包）、单函数 ≤ 50 行（`funlen`）、错误吞掉（`errcheck`）、错误不带 `%w`（`errorlint`）。其余各条仍靠自觉。要新增机器检查，先在 `.golangci.yml` 加规则并在这里写出对应条目，两边不要脱节。
 
 ## Never Do
 
