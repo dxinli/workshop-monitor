@@ -312,15 +312,21 @@ func notifyID(s Sample) string {
 }
 
 // reasonOf 生成人类可读的告警原因，写进 alarm.message 与通知卡片。
+//
+// 分支依据是去抖次数，不是有没有阈值：开关量的阈值行同样带 thresholdValue
+// （`>= 1`），按「有没有阈值」分支会写出「连续 0 次状态报警 >= 1」。
 func reasonOf(r Rule) string {
 	text := alarmTypeText[r.AlarmType]
 	if text == "" {
 		text = r.AlarmType
 	}
-	if !r.HasValue {
-		return fmt.Sprintf("状态报警：%s 触发", text)
+	if r.Debounce > 0 {
+		return fmt.Sprintf("连续 %d 次%s %s %g", r.Debounce, text, r.Operator, r.Value)
 	}
-	return fmt.Sprintf("连续 %d 次%s %s %g", r.Debounce, text, r.Operator, r.Value)
+	if !r.HasValue {
+		return fmt.Sprintf("%s：触发", text)
+	}
+	return fmt.Sprintf("%s：读数 %s %g", text, r.Operator, r.Value)
 }
 
 // alarmTypeText 是告警类型的中文名，取值见接口规范 §11.2。
