@@ -7,17 +7,17 @@ import "fmt"
 // 只放进程级参数：Broker 地址、账号、数据库连接、队列容量。
 // 业务参数（点表、阈值、主题模板）各有独立文件，不塞进这里。
 type Adapter struct {
-	BrokerURL          string `json:"brokerUrl"`
-	TopicScheme        string `json:"topicScheme"`
-	QoS                byte   `json:"qos"`
-	KeepAliveSec       int    `json:"keepAliveSec"`
-	ConnectTimeoutSec  int    `json:"connectTimeoutSec"`
-	ReconnectIntervalSec int  `json:"reconnectIntervalSec"`
-	MaxReconnectSec    int    `json:"maxReconnectSec"`
-	ClientID           string `json:"clientId"`
-	Username           string `json:"username"`
-	TopicsFile         string `json:"topicsFile"`
-	Database           struct {
+	BrokerURL            string `json:"brokerUrl"`
+	TopicScheme          string `json:"topicScheme"`
+	QoS                  byte   `json:"qos"`
+	KeepAliveSec         int    `json:"keepAliveSec"`
+	ConnectTimeoutSec    int    `json:"connectTimeoutSec"`
+	ReconnectIntervalSec int    `json:"reconnectIntervalSec"`
+	MaxReconnectSec      int    `json:"maxReconnectSec"`
+	ClientID             string `json:"clientId"`
+	Username             string `json:"username"`
+	TopicsFile           string `json:"topicsFile"`
+	Database             struct {
 		URL               string `json:"url"`
 		MaxConns          int32  `json:"maxConns"`
 		ConnectTimeoutSec int    `json:"connectTimeoutSec"`
