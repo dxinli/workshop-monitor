@@ -1,4 +1,5 @@
 bin/
+var/
 .pty/
 .venv-sim/
 *.exe
