@@ -1,0 +1,20 @@
+{
+  "brokerUrl": "tcp://localhost:1883",
+  "topicScheme": "grid",
+  "qos": 1,
+  "keepAliveSec": 30,
+  "connectTimeoutSec": 10,
+  "reconnectIntervalSec": 2,
+  "maxReconnectSec": 30,
+  "clientId": "adapter-workshop",
+  "username": "workshop_adapter",
+  "topicsFile": "config/topics.json",
+  "database": {
+    "url": "postgres://workshop_adapter@localhost:5432/workshop_monitor?sslmode=disable",
+    "maxConns": 8,
+    "connectTimeoutSec": 10
+  },
+  "queue": {
+    "capacity": 4096
+  }
+}

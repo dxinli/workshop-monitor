@@ -1,15 +1,23 @@
-// proto-adapter：平台侧接入服务，接收上行报文并做告警判定。
-// 本文件只做参数解析与依赖装配，业务逻辑在 internal/adapter。
+// proto-adapter：平台侧接入服务。本文件只做参数解析、依赖装配与启动调用。
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"workshop-monitor/internal/adapter/ingest"
+	"workshop-monitor/internal/config"
 )
 
 func main() {
-	configPath := flag.String("config", "", "接入服务配置路径，如 config/adapter.toml")
+	configPath := flag.String("config", "", "接入服务配置路径，如 config/adapter.json")
 	flag.Parse()
 
 	if *configPath == "" {
@@ -17,11 +25,147 @@ func main() {
 		os.Exit(2)
 	}
 
-	if _, err := os.Stat(*configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "读取配置失败: %v\n", err)
-		os.Exit(2)
+	if err := run(*configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "proto-adapter 退出：%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run(configPath string) error {
+	cfg, err := config.LoadAdapter(configPath)
+	if err != nil {
+		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "proto-adapter 尚未实现，配置: %s\n", *configPath)
-	os.Exit(1)
+	router, filter, err := buildRouter(cfg)
+	if err != nil {
+		return err
+	}
+
+	password, err := requireEnv("MQTT_WORKSHOP_ADAPTER_PASSWORD")
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := openPool(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password),
+		newHandler(ingest.NewPipeline(router, ingest.NewPGSink(pool), ingest.DefaultRetryPolicy())))
+	if err != nil {
+		return err
+	}
+
+	if err := sub.Connect(ctx); err != nil {
+		return err
+	}
+	fmt.Printf("已订阅 %s（方案 %s），等待上行报文\n", filter, cfg.TopicScheme)
+
+	<-ctx.Done()
+	sub.Disconnect(250)
+	fmt.Println("收到退出信号，已断开订阅")
+	return nil
+}
+
+// buildRouter 由主题模板构造路由与订阅通配。两者必须来自同一份模板，否则会订阅到解析不了的主题。
+func buildRouter(cfg *config.Adapter) (*ingest.Router, string, error) {
+	templates, err := loadTopics(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	router, err := ingest.NewRouter(templates)
+	if err != nil {
+		return nil, "", err
+	}
+	filter, err := ingest.TopicFilterFromTemplates(templates)
+	if err != nil {
+		return nil, "", err
+	}
+	return router, filter, nil
+}
+
+func subscriptionOf(cfg *config.Adapter, filter, password string) ingest.SubscriptionConfig {
+	return ingest.SubscriptionConfig{
+		BrokerURL:         cfg.BrokerURL,
+		ClientID:          cfg.ClientID,
+		Username:          cfg.Username,
+		Password:          password,
+		TopicFilter:       filter,
+		QoS:               cfg.QoS,
+		KeepAlive:         time.Duration(cfg.KeepAliveSec) * time.Second,
+		ConnectTimeout:    time.Duration(cfg.ConnectTimeoutSec) * time.Second,
+		ReconnectInterval: time.Duration(cfg.ReconnectIntervalSec) * time.Second,
+		MaxReconnect:      time.Duration(cfg.MaxReconnectSec) * time.Second,
+	}
+}
+
+// newHandler 把 Pipeline 包成订阅回调。失败只记日志，不中断订阅——
+// 单条报文出错不该让整个接收段停摆。
+func newHandler(p *ingest.Pipeline) func(context.Context, string, []byte) error {
+	return func(ctx context.Context, topic string, payload []byte) error {
+		res, err := p.Handle(ctx, topic, payload)
+		logResult(res, err)
+		return err
+	}
+}
+
+// loadTopics 按 topicScheme 选一套模板。主题字符串只来自 config/topics.json。
+func loadTopics(cfg *config.Adapter) (ingest.TopicTemplates, error) {
+	topics, err := config.LoadTopics(cfg.TopicsFile)
+	if err != nil {
+		return ingest.TopicTemplates{}, err
+	}
+	scheme, ok := topics.Schemes[cfg.TopicScheme]
+	if !ok {
+		return ingest.TopicTemplates{}, fmt.Errorf("topicsFile 中没有方案 %q", cfg.TopicScheme)
+	}
+	return ingest.TopicTemplates{
+		Data:   scheme.DataUp,
+		Event:  scheme.EventUp,
+		Status: scheme.StatusUp,
+	}, nil
+}
+
+func openPool(ctx context.Context, cfg *config.Adapter) (*pgxpool.Pool, error) {
+	poolCfg, err := pgxpool.ParseConfig(cfg.Database.URL)
+	if err != nil {
+		return nil, fmt.Errorf("解析 database.url: %w", err)
+	}
+	poolCfg.MaxConns = cfg.Database.MaxConns
+	poolCfg.ConnConfig.ConnectTimeout = time.Duration(cfg.Database.ConnectTimeoutSec) * time.Second
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("建立数据库连接池: %w", err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("连接数据库: %w", err)
+	}
+	return pool, nil
+}
+
+func requireEnv(key string) (string, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return "", fmt.Errorf("缺少环境变量 %s", key)
+	}
+	return v, nil
+}
+
+// logResult 按 AGENTS.md 的固定字段输出。采集循环不在此列，消息级日志是允许的。
+func logResult(res ingest.Result, err error) {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "level=error svc=adapter inst=%s esn=%s seq=%d msg=%q err=%q status=%s\n",
+			"adapter", res.TerminalID, res.Seq, "接收失败", err.Error(), res.Status)
+		return
+	}
+	fmt.Printf("level=info svc=adapter inst=adapter esn=%s seq=%d msg_type=%s points=%d status=%s\n",
+		res.TerminalID, res.Seq, res.MsgType, res.PointCount, res.Status)
 }
