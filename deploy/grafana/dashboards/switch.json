@@ -1,0 +1,681 @@
+{
+  "uid": "workshop-switch",
+  "title": "开关量状态",
+  "description": "安全门磁、急停、光幕等二值状态的当前值。",
+  "tags": [
+    "车间监测",
+    "读视图"
+  ],
+  "timezone": "Asia/Shanghai",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "1h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "workshop",
+        "label": "车间",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT workshop AS __text, workshop AS __value FROM v_point_dict ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "esn",
+        "label": "终端",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT terminal_id AS __text, terminal_id AS __value FROM v_point_dict WHERE workshop IN (${workshop:sqlstring}) ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "车间总览",
+      "url": "/d/workshop-overview",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "实时监视",
+      "url": "/d/workshop-realtime",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "历史曲线",
+      "url": "/d/workshop-history",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "能耗分析",
+      "url": "/d/workshop-energy",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "告警中心",
+      "url": "/d/workshop-alarms",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "原始报文",
+      "url": "/d/workshop-raw",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "配置查看",
+      "url": "/d/workshop-config",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    }
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "开关量状态",
+      "description": "门磁、急停、光幕为二值状态，不做去抖。「异常」列 1 表示现场安全信号触发。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT r.terminal_id AS \"终端\", r.workshop AS \"车间\", r.device_name AS \"设备\",\n                         r.point_name AS \"测点\",\n                         CASE WHEN r.value IS NULL THEN '无数据'\n                              WHEN r.value = 0 THEN CASE d.point_code\n                                  WHEN 'door' THEN '闭合' WHEN 'estop' THEN '正常'\n                                  WHEN 'light_curtain' THEN '通光' ELSE '断开' END\n                              ELSE CASE d.point_code\n                                  WHEN 'door' THEN '打开' WHEN 'estop' THEN '按下'\n                                  WHEN 'light_curtain' THEN '遮挡' ELSE '闭合' END\n                         END AS \"状态\",\n                         CASE WHEN r.value IS NULL THEN NULL WHEN r.value = 0 THEN 0 ELSE 1 END AS \"异常\",\n                         r.collect_time AS \"采集时间\", r.seq AS \"序号\", CASE r.quality WHEN 0 THEN '正常' WHEN 1 THEN '设备异常' WHEN 2 THEN '通信超时'\n            WHEN 3 THEN '校验错误' WHEN 4 THEN '解析错误' WHEN 5 THEN '超量程'\n            WHEN 6 THEN '数据陈旧' WHEN 7 THEN '仿真数据' WHEN 8 THEN '人工注入'\n            ELSE '未知(' || r.quality || ')' END AS \"质量\"\n                  FROM v_realtime r JOIN v_point_dict d\n                    ON d.terminal_id = r.terminal_id AND d.point_id = r.point_id\n                  WHERE r.si_type = 'YX' AND r.workshop IN (${workshop:sqlstring})\n                  ORDER BY r.terminal_id, r.device_name, r.point_name"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "采集时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后数据时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后在线时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "发生时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近发生"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "恢复时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "接收时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collectTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sendTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "状态"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "闭合": {
+                        "text": "闭合",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "正常": {
+                        "text": "正常",
+                        "color": "green",
+                        "index": 1
+                      },
+                      "通光": {
+                        "text": "通光",
+                        "color": "green",
+                        "index": 2
+                      },
+                      "断开": {
+                        "text": "断开",
+                        "color": "orange",
+                        "index": 3
+                      },
+                      "打开": {
+                        "text": "打开",
+                        "color": "red",
+                        "index": 4
+                      },
+                      "按下": {
+                        "text": "按下",
+                        "color": "red",
+                        "index": 5
+                      },
+                      "遮挡": {
+                        "text": "遮挡",
+                        "color": "red",
+                        "index": 6
+                      },
+                      "无数据": {
+                        "text": "无数据",
+                        "color": "gray",
+                        "index": 7
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "异常"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "质量"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "正常": {
+                        "text": "正常",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "设备异常": {
+                        "text": "设备异常",
+                        "color": "red",
+                        "index": 1
+                      },
+                      "通信超时": {
+                        "text": "通信超时",
+                        "color": "red",
+                        "index": 2
+                      },
+                      "校验错误": {
+                        "text": "校验错误",
+                        "color": "red",
+                        "index": 3
+                      },
+                      "解析错误": {
+                        "text": "解析错误",
+                        "color": "red",
+                        "index": 4
+                      },
+                      "超量程": {
+                        "text": "超量程",
+                        "color": "orange",
+                        "index": 5
+                      },
+                      "数据陈旧": {
+                        "text": "数据陈旧",
+                        "color": "orange",
+                        "index": 6
+                      },
+                      "仿真数据": {
+                        "text": "仿真数据",
+                        "color": "purple",
+                        "index": 7
+                      },
+                      "人工注入": {
+                        "text": "人工注入",
+                        "color": "purple",
+                        "index": 8
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "异常开关量",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_realtime WHERE si_type = 'YX' AND value = 1 AND workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "无数据开关量",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_realtime WHERE si_type = 'YX' AND value IS NULL AND workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "开关量测点总数",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_realtime WHERE si_type = 'YX' AND workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    }
+  ]
+}

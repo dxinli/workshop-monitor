@@ -1,0 +1,19 @@
+# 读视图数据源：Grafana 以 workshop_readonly 连库，该角色只有 SELECT。
+# 口令不落版本库，由 compose 从 .env 注入 GRAFANA_DB_*，启动时替换 ${} 占位。
+apiVersion: 1
+datasources:
+  - name: 车间监测库
+    uid: workshop-pg
+    type: grafana-postgresql-datasource
+    access: proxy
+    isDefault: true
+    editable: false
+    url: ${GRAFANA_DB_HOST}:${GRAFANA_DB_PORT}
+    user: "${GRAFANA_DB_USER}"
+    secureJsonData:
+      password: "${GRAFANA_DB_PASSWORD}"
+    jsonData:
+      database: ${GRAFANA_DB_NAME}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: true

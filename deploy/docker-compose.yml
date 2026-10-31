@@ -32,6 +32,44 @@ services:
       - ./timescaledb/init:/docker-entrypoint-initdb.d:ro
     restart: unless-stopped
 
+  # 读视图：只读账号连库，无任何写权限。面板与数据源由 provisioning 纳管，
+  # 界面里改面板不生效（allowUiUpdates=false），改动必须落到 JSON 并提交。
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    ports:
+      - "3000:3000"
+    environment:
+      # 数据源占位符，由 provisioning/datasources/postgres.yaml 替换。
+      GRAFANA_DB_HOST: timescaledb
+      GRAFANA_DB_PORT: "5432"
+      GRAFANA_DB_NAME: ${POSTGRES_DB}
+      GRAFANA_DB_USER: workshop_readonly
+      GRAFANA_DB_PASSWORD: ${WORKSHOP_READONLY_PASSWORD}
+      # 只读形态：不建管理员、关登录表单，匿名访客为 Viewer，写操作一律 403。
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_LANGUAGE: zh-Hans
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: Asia/Shanghai
+      # 刷新粒度与规则文件一致：5 秒。
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 5s
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - timescaledb
+    restart: unless-stopped
+
 volumes:
   timescale-data:
   mosquitto-data:
+  grafana-data:

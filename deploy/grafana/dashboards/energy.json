@@ -1,0 +1,442 @@
+{
+  "uid": "workshop-energy",
+  "title": "能耗分析",
+  "description": "功率取均值、电能取末值差。功率可相加，电能不可累加。",
+  "tags": [
+    "车间监测",
+    "读视图"
+  ],
+  "timezone": "Asia/Shanghai",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "1h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "workshop",
+        "label": "车间",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT workshop AS __text, workshop AS __value FROM v_point_dict ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "车间总览",
+      "url": "/d/workshop-overview",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "实时监视",
+      "url": "/d/workshop-realtime",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "开关量状态",
+      "url": "/d/workshop-switch",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "历史曲线",
+      "url": "/d/workshop-history",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "告警中心",
+      "url": "/d/workshop-alarms",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "原始报文",
+      "url": "/d/workshop-raw",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "配置查看",
+      "url": "/d/workshop-config",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    }
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "有功功率（按车间）",
+      "description": "各测点有功功率在区间内取均值后按车间汇总。功率是瞬时量，可比相加。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT * FROM (\nSELECT time_bucket(GREATEST('$__interval'::interval, interval '1 minute'), m.collect_time) AS time,\n               d.workshop AS metric, avg(m.value) AS value\n        FROM measurement m JOIN v_point_dict d\n          ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n        WHERE $__timeFilter(m.collect_time) AND d.point_code = 'p_total'\n          AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\n        GROUP BY 1, 2\nUNION ALL\nSELECT time_bucket(GREATEST('$__interval'::interval, interval '1 minute'), x.bucket) AS time,\n               d.workshop AS metric, avg(x.avg_value) AS value\n        FROM measurement_1m x JOIN v_point_dict d\n          ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n        WHERE $__timeFilter(x.bucket) AND d.point_code = 'p_total'\n          AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400\n        GROUP BY 1, 2\n) s\nORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatt",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "电能消耗（按车间）",
+      "description": "正向有功电能按区间末值减首值后按车间汇总。电能是累计量，求和会放大 N 倍。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT * FROM (\nSELECT time_bucket(GREATEST('$__interval'::interval, interval '1 hour'), s.b) AS time,\n               s.workshop AS metric, sum(s.delta) AS value\n        FROM (SELECT m.terminal_id, m.point_id, d.workshop,\n                     time_bucket(GREATEST('$__interval'::interval, interval '1 hour'), m.collect_time) AS b,\n                     max(m.value) - min(m.value) AS delta\n              FROM measurement m JOIN v_point_dict d\n                ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n              WHERE $__timeFilter(m.collect_time) AND d.point_code = 'ep_forward'\n                AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\n              GROUP BY 1, 2, 3, 4) s\n        GROUP BY 1, 2\nUNION ALL\nSELECT time_bucket(GREATEST('$__interval'::interval, interval '1 hour'), s.b) AS time,\n               s.workshop AS metric, sum(s.delta) AS value\n        FROM (SELECT x.terminal_id, x.point_id, d.workshop,\n                     time_bucket(GREATEST('$__interval'::interval, interval '1 hour'), x.bucket) AS b,\n                     max(x.max_value) - min(x.min_value) AS delta\n              FROM measurement_1m x JOIN v_point_dict d\n                ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n              WHERE $__timeFilter(x.bucket) AND d.point_code = 'ep_forward'\n                AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400\n              GROUP BY 1, 2, 3, 4) s\n        GROUP BY 1, 2\n) s\nORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "窗口电能消耗",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(sum(v)::numeric, 2) AS value FROM (SELECT * FROM (\nSELECT s.workshop AS metric, sum(s.delta) AS v\n                    FROM (SELECT m.terminal_id, m.point_id, d.workshop,\n                                 max(m.value) - min(m.value) AS delta\n                          FROM measurement m JOIN v_point_dict d\n                            ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n                          WHERE $__timeFilter(m.collect_time) AND d.point_code = 'ep_forward'\n                            AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\n                          GROUP BY 1, 2, 3) s\n                    GROUP BY 1\nUNION ALL\nSELECT s.workshop AS metric, sum(s.delta) AS v\n                 FROM (SELECT x.terminal_id, x.point_id, d.workshop,\n                              max(x.max_value) - min(x.min_value) AS delta\n                       FROM measurement_1m x JOIN v_point_dict d\n                         ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n                       WHERE $__timeFilter(x.bucket) AND d.point_code = 'ep_forward'\n                         AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400\n                       GROUP BY 1, 2, 3) s\n                 GROUP BY 1\n) s) t"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "窗口平均有功功率",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(sum(v)::numeric, 2) AS value FROM (SELECT * FROM (\nSELECT avg(m.value) AS v\n                   FROM measurement m JOIN v_point_dict d\n                     ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n                   WHERE $__timeFilter(m.collect_time) AND d.point_code = 'p_total'\n                     AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\nUNION ALL\nSELECT avg(x.avg_value) AS v\n                FROM measurement_1m x JOIN v_point_dict d\n                  ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n                WHERE $__timeFilter(x.bucket) AND d.point_code = 'p_total'\n                  AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400\n) s) t"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatt",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "参与统计的测点数",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM (SELECT * FROM (SELECT DISTINCT m.terminal_id, m.point_id\n                        FROM measurement m JOIN v_point_dict d\n                          ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n                        WHERE $__timeFilter(m.collect_time) AND d.point_code = 'ep_forward'\n                          AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\n                 UNION ALL\n                 SELECT DISTINCT x.terminal_id, x.point_id\n                        FROM measurement_1m x JOIN v_point_dict d\n                          ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n                        WHERE $__timeFilter(x.bucket) AND d.point_code = 'ep_forward'\n                          AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400) s) t"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    }
+  ]
+}

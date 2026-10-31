@@ -1,4 +1,4 @@
-.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker sim-pty sim-test sim-up
+.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker verify-read-view sim-pty sim-test sim-up
 
 GO ?= go
 BIN_DIR := bin
@@ -39,6 +39,7 @@ help:
 	@echo "preflight     部署后自检"
 	@echo "passwd        从 .env 生成 Mosquitto 口令文件"
 	@echo "verify-broker 003 验收：认证、授权、LWT、两套命名方案"
+	@echo "verify-read-view 013 验收：8 个面板可读、只读、30 天走聚合"
 	@echo "logs          跟随容器日志"
 	@echo "sim-pty       建 10 对虚拟串口，端点表写到 .pty/"
 	@echo "sim-test      仿真件单元测试（需 sim/modbus-slave-sim 的 venv）"
@@ -197,6 +198,11 @@ passwd:
 
 verify-broker:
 	./scripts/verify-broker.sh
+
+# 需要全栈已起（make up）与已 seed 的库；GRAFANA_URL 可覆盖地址。
+verify-read-view:
+	@$(COMPOSE) ps --status running grafana >/dev/null 2>&1 || { echo "grafana 未在运行，先执行 make up"; exit 1; }
+	./scripts/verify-read-view.sh $(or $(GRAFANA_URL),http://localhost:3000)
 
 logs:
 	$(COMPOSE) logs -f
