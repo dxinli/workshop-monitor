@@ -1,4 +1,6 @@
 bin/
+.pty/
+.venv-sim/
 *.exe
 .env
 *.log

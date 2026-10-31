@@ -1,0 +1,1 @@
+通过：sim/ 无 internal/ import，cmd/ 无 sim/ import
