@@ -58,6 +58,10 @@ adapter 内不得出现建表语句。要加表就改本目录并同步数据库
 | adapter | 配置域读，测量/报文/事件/告警域写 |
 | Grafana 读视图 | 只读 |
 | Dashboard 写视图 | 仅告警表读写 |
+| 编排层（Node-RED） | 配置域与 `alarm` 读，`notify_log` 读写 |
+
+编排层对 `alarm` 只读：卡片要带 `alarmId`，`notify_log.alarm_id` 是它的外键，
+但通知失败不回滚告警，它不该有改告警状态的能力。
 
 Grafana 不得授予写权限。写操作只从 Dashboard 一个出口出。
 
@@ -76,6 +80,13 @@ Grafana 不得授予写权限。写操作只从 Dashboard 一个出口出。
 **参数校验失败不写日志**是反直觉但正确：这类错误属调用方缺陷，应在 adapter 日志暴露。
 
 `flows.json` 必须在编辑器导出后提交，禁止只在界面修改。
+
+官方镜像不带数据库节点，N-02 写 `notify_log` 靠 `node-red-contrib-postgresql`
+（版本锁在 `deploy/versions.env`，镜像由 `deploy/node-red/Dockerfile` 构建）。
+`deploy/node-red` 整目录挂到容器 `/data`，运行时产物已在 `.gitignore`——
+`git status` 里只该出现 `flows.json` 与 `settings.js`。
+
+4.0.5 只有一个 HTTP 监听口（`httpNodePort` 已移除），编辑器与 `/api/notify` 共用 1880。
 
 ## Grafana
 

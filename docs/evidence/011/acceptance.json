@@ -1,0 +1,58 @@
+{
+  "task": "011 通知触达层",
+  "generatedAt": "2026-10-31T21:45:00+0800",
+  "nodeRed": "4.0.5（自定义镜像：+ node-red-contrib-postgresql 0.16.2）",
+  "passed": true,
+  "cases": [
+    {
+      "name": "POST /api/notify 组装卡片，含车间/终端/测点/级别/触发值/发生时间/告警原因",
+      "passed": true,
+      "detail": "level 3 卡片 alarm 字段 14 个齐全，markdown.content 六行含全部 7 项"
+    },
+    {
+      "name": "level 1 只入库不发通知",
+      "passed": true,
+      "detail": "收 200 SKIPPED，notify_log 记 1 条 SKIPPED，接收端 0 次调用"
+    },
+    {
+      "name": "level 3/4 立即发",
+      "passed": true,
+      "detail": "level 3 与 level 4 均 202 ACCEPTED，1 秒内接收端收到卡片"
+    },
+    {
+      "name": "投递失败按 1/5/15 秒重试，共 4 次，末端记失败原因并终止",
+      "passed": true,
+      "detail": "通道指向死端时 21.1 秒后写 FAILED，retry_count=3，fail_reason 记录 RequestError"
+    },
+    {
+      "name": "成功与失败都写 notify_log",
+      "passed": true,
+      "detail": "SENT 与 FAILED 各一条，同一主键 notifyId，重复投递走 ON CONFLICT 覆盖"
+    },
+    {
+      "name": "编排层不可达时 adapter 告警照常入库",
+      "passed": true,
+      "detail": "adapter 侧无重试：HTTP 超时 5 秒后只计数，告警行已在 alarm 表"
+    },
+    {
+      "name": "参数校验失败返回 400/422 且不写投递日志",
+      "passed": true,
+      "detail": "坏 JSON 400、缺字段 422、未知测点 422；三次之后 notify_log 行数不变"
+    },
+    {
+      "name": "不改写 notifyId",
+      "passed": true,
+      "detail": "卡片、notify_log、响应三处 notifyId 与 adapter 发来的完全一致"
+    },
+    {
+      "name": "flows.json 从编辑器导出后提交，无 flow context 持久化",
+      "passed": true,
+      "detail": "21 节点经 4.0.5 自己的 POST /flows 重写一遍后逐字段一致；settings.js 无 contextStorage"
+    },
+    {
+      "name": "不做阈值求值、去抖、告警状态判定",
+      "passed": true,
+      "detail": "流程只读 point/terminal/device/alarm 与写 notify_log，无判定分支"
+    }
+  ]
+}

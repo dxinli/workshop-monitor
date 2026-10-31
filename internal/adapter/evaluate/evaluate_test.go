@@ -481,3 +481,30 @@ func TestRaiseRetriesAfterWriteFailure(t *testing.T) {
 		t.Fatalf("库恢复后应重新拉响，实际 %d 条", len(st.raised))
 	}
 }
+
+// 开关量的告警原因不得写成「连续 0 次…」。
+//
+// STATE_ALARM 的阈值行同样带 thresholdValue（`>= 1`），按「有没有阈值」分支会落到
+// 「连续 N 次」那一支，N 是 0，卡片上就成了「连续 0 次状态报警 >= 1」。
+// 分支依据是去抖次数，不是阈值有无。
+func TestStateAlarmReasonIsReadable(t *testing.T) {
+	// 与 config/thresholds.json 里 STATE_ALARM 那一行一致：不去抖，但带阈值 `>= 1`。
+	rule := evaluate.Rule{
+		AlarmType: "STATE_ALARM", TerminalID: "ESN-ZX-0001", BusID: "A",
+		PointCode: "estop", Operator: ">=", Value: 1, HasValue: true,
+		Level: 4, Debounce: 0,
+	}
+	st := &memStore{rules: []evaluate.Rule{rule}}
+	ev, _ := newEvaluator(t, st)
+	ctx := context.Background()
+
+	mustEval(t, ev, ctx, estopSample(1, 1000))
+	if len(st.raised) != 1 {
+		t.Fatalf("开关量当次即告警，实际 %d 次", len(st.raised))
+	}
+	got := st.raised[0].Message
+	want := "状态报警：读数 >= 1"
+	if got != want {
+		t.Fatalf("告警原因为 %q，期望 %q", got, want)
+	}
+}
