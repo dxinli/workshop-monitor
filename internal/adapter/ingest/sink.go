@@ -54,13 +54,28 @@ type EventRecord struct {
 }
 
 // StatusRecord 是一条 STATUS 报文的落库输入。
+//
+// Changed 为 false 时只留原文，不更新 terminal_state、不记事件——
+// 重复上报同一状态不该把状态表变成流水表。
 type StatusRecord struct {
 	TerminalID  string
 	Status      string
 	StatusTime  time.Time
 	Reason      string
 	ReceiveTime time.Time
+	LastData    time.Time
+	LastSeen    time.Time
+	Changed     bool
 	Raw         RawRecord
+}
+
+// StateSink 是状态合成所需的写入能力。Pipeline 只在注入 TermState 后使用它，
+// 不注入时无需实现——008 的调用方因此不用改。
+type StateSink interface {
+	// WriteTermState 更新 terminal_state 并记一条终端事件。
+	WriteTermState(ctx context.Context, snap TermSnapshot) error
+	// WriteDeviceEvent 只记设备事件，不碰 terminal_state。
+	WriteDeviceEvent(ctx context.Context, rec EventRecord) error
 }
 
 // Sink 是接收段的持久化出口。唯一实现是 PGSink；单测用内存实现。
@@ -75,7 +90,7 @@ type Sink interface {
 	WriteData(ctx context.Context, rec DataRecord) error
 	// WriteEvent 写入设备事件。
 	WriteEvent(ctx context.Context, rec EventRecord) error
-	// WriteStatus 写入终端状态与状态事件（009 完整实现三源合成，本任务只落状态消息）。
+	// WriteStatus 留存状态报文原文，并按三源合成的结论更新 terminal_state 与事件。
 	WriteStatus(ctx context.Context, rec StatusRecord) error
 }
 
@@ -263,45 +278,114 @@ WHERE EXCLUDED.collect_time > realtime_value.collect_time
 	return nil
 }
 
-// WriteEvent 写设备事件并留存原文。
+// WriteEvent 写设备事件（含原文）并留存原文。
 func (s *PGSink) WriteEvent(ctx context.Context, rec EventRecord) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		if err := insertRawTx(ctx, tx, rec.Raw); err != nil {
 			return err
 		}
-		const q = `
-INSERT INTO monitor.device_event
-  (terminal_id, bus_id, slave_addr, event_type, event_time, reason, detail, backfill)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`
-		_, err := tx.Exec(ctx, q, rec.TerminalID, nullString(rec.BusID), nullInt(rec.SlaveAddr),
-			rec.EventType, rec.EventTime, nullString(rec.Reason), nullString(rec.Detail), rec.Backfill)
-		if err != nil {
-			return fmt.Errorf("写设备事件 %s|%d: %w", rec.TerminalID, rec.Raw.Seq, err)
-		}
-		return nil
+		return insertEventTx(ctx, tx, rec)
 	})
 }
 
-// WriteStatus 留存原文并记录状态事件。
+// WriteStatus 在单事务里留存原文、更新终端状态、按变化记事件。
 //
-// 三源合成与 terminal_state 的写入属于 009；本任务只保证入口把状态消息完整落库，
-// 不在这里实现「补传不推进 lastData」这类判定，避免两处各写一版。
+// 状态为 UNKNOWN 且本来就没有行时不插入：terminal_state 只记录已知结论，
+// 「还没收到任何信号」不是一种状态，把它写成一行反而会被界面当成真的未知终端。
 func (s *PGSink) WriteStatus(ctx context.Context, rec StatusRecord) error {
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		if err := insertRawTx(ctx, tx, rec.Raw); err != nil {
 			return err
 		}
-		const q = `
+		if !rec.Changed {
+			return nil
+		}
+		if err := upsertTerminalState(ctx, tx, rec); err != nil {
+			return err
+		}
+		return insertEventTx(ctx, tx, EventRecord{
+			TerminalID: rec.TerminalID,
+			EventType:  eventTypeOf(rec.Status),
+			EventTime:  rec.StatusTime,
+			Reason:     rec.Reason,
+			Raw:        rec.Raw,
+		})
+	})
+}
+
+// WriteTermState 只更新 terminal_state 并记事件（数据超时、数据到达两类判定走这里）。
+func (s *PGSink) WriteTermState(ctx context.Context, snap TermSnapshot) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		// LastData / LastSeen 必须一起带上：漏掉会让 terminal_state 的
+		// last_data_time 永远是空值，巡检也就无从判断超时。
+		rec := StatusRecord{
+			TerminalID: snap.TerminalID,
+			Status:     snap.Status,
+			Reason:     snap.Reason,
+			StatusTime: snap.LastSeen,
+			LastData:   snap.LastData,
+			LastSeen:   snap.LastSeen,
+		}
+		if err := upsertTerminalState(ctx, tx, rec); err != nil {
+			return err
+		}
+		return insertEventTx(ctx, tx, EventRecord{
+			TerminalID: snap.TerminalID,
+			EventType:  eventTypeOf(snap.Status),
+			EventTime:  snap.LastSeen,
+			Reason:     snap.Reason,
+		})
+	})
+}
+
+// WriteDeviceEvent 记设备离线与恢复事件。设备状态不落单独的表，只落事件。
+func (s *PGSink) WriteDeviceEvent(ctx context.Context, rec EventRecord) error {
+	return s.inTx(ctx, func(tx pgx.Tx) error { return insertEventTx(ctx, tx, rec) })
+}
+
+func upsertTerminalState(ctx context.Context, tx pgx.Tx, rec StatusRecord) error {
+	const q = `
+INSERT INTO monitor.terminal_state
+  (terminal_id, status, last_data_time, last_seen_time, offline_reason, updated_at)
+VALUES ($1,$2,$3,$4,$5, now())
+ON CONFLICT (terminal_id) DO UPDATE
+SET status = EXCLUDED.status,
+    last_data_time = GREATEST(terminal_state.last_data_time, EXCLUDED.last_data_time),
+    last_seen_time = GREATEST(terminal_state.last_seen_time, EXCLUDED.last_seen_time),
+    offline_reason = EXCLUDED.offline_reason,
+    updated_at = now()`
+	if _, err := tx.Exec(ctx, q, rec.TerminalID, rec.Status, nullTime(rec.LastData),
+		nullTime(rec.LastSeen), nullString(rec.Reason)); err != nil {
+		return fmt.Errorf("更新终端状态 %s: %w", rec.TerminalID, err)
+	}
+	return nil
+}
+
+func insertEventTx(ctx context.Context, tx pgx.Tx, rec EventRecord) error {
+	const q = `
 INSERT INTO monitor.device_event
   (terminal_id, bus_id, slave_addr, event_type, event_time, reason, detail, backfill)
-VALUES ($1,NULL,NULL,$2,$3,$4,NULL,$5)`
-		_, err := tx.Exec(ctx, q, rec.TerminalID, "TERMINAL_"+rec.Status, rec.StatusTime,
-			nullString(rec.Reason), false)
-		if err != nil {
-			return fmt.Errorf("写终端状态事件 %s|%d: %w", rec.TerminalID, rec.Raw.Seq, err)
-		}
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`
+	if _, err := tx.Exec(ctx, q, rec.TerminalID, nullString(rec.BusID), nullInt(rec.SlaveAddr),
+		rec.EventType, rec.EventTime, nullString(rec.Reason), nullString(rec.Detail),
+		rec.Backfill); err != nil {
+		return fmt.Errorf("写设备事件 %s/%s: %w", rec.TerminalID, rec.EventType, err)
+	}
+	return nil
+}
+
+func eventTypeOf(status string) string {
+	if status == StatusOffline {
+		return EventTerminalOffline
+	}
+	return EventTerminalOnline
+}
+
+func nullTime(t time.Time) *time.Time {
+	if t.IsZero() {
 		return nil
-	})
+	}
+	return &t
 }
 
 func nullInt(v int) *int {

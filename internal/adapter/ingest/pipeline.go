@@ -42,7 +42,17 @@ type Pipeline struct {
 	idem   *Idem
 	retry  RetryPolicy
 	now    func() time.Time
+
+	// state 为空时只落库，不做状态合成——008 的行为保持不变。
+	state *TermState
+	// sweep 是巡检周期，取自终端的采集周期。
+	sweep time.Duration
+	// lastStateErr 是最近一次状态投影失败，供健康检查暴露。
+	lastStateErr error
 }
+
+// LastStateError 返回最近一次状态投影失败，健康检查据此降级。
+func (p *Pipeline) LastStateError() error { return p.lastStateErr }
 
 // NewPipeline 组装接收段。外部资源（sink、时钟）全部注入，便于 seam 上替换。
 func NewPipeline(router *Router, sink Sink, retry RetryPolicy) *Pipeline {
@@ -53,6 +63,39 @@ func NewPipeline(router *Router, sink Sink, retry RetryPolicy) *Pipeline {
 		retry:  retry,
 		now:    time.Now,
 	}
+}
+
+// WithTermState 注入状态判定器与巡检周期。不调用时接收段只落库，不做状态合成。
+func (p *Pipeline) WithTermState(state *TermState, sweepSeconds int) *Pipeline {
+	p.state = state
+	p.sweep = time.Duration(sweepSeconds) * time.Second
+	return p
+}
+
+// Sweep 执行一次状态巡检：超时的终端判离线并落库，其余不动。
+//
+// 由 cmd 装配的定时器调用。判定器自身保证「已离线的终端不再重复判离线」，
+// 因此这里可以无条件遍历。
+func (p *Pipeline) Sweep(ctx context.Context, now time.Time) error {
+	if p.state == nil {
+		return nil
+	}
+	for _, snap := range p.state.Snapshot() {
+		before := snap.Status
+		tr := p.state.Sweep(snap.TerminalID, now)
+		if tr.Status == before {
+			continue
+		}
+		updated := snap
+		updated.Status = tr.Status
+		updated.Reason = tr.Reason
+		if err := p.withRetry(ctx, func(ctx context.Context) error {
+			return p.sink.(StateSink).WriteTermState(ctx, updated)
+		}); err != nil {
+			return fmt.Errorf("巡检写终端状态 %s: %w", snap.TerminalID, err)
+		}
+	}
+	return nil
 }
 
 // Handle 处理一条 MQTT 消息，返回落库结果。
@@ -171,18 +214,94 @@ func (p *Pipeline) persist(ctx context.Context, esn, topic string, payload []byt
 		Raw:         raw,
 	}
 
+	return p.writeByType(ctx, dec, rec, raw, now)
+}
+
+// writeByType 按消息类型分派。状态判定在写库成功之后推进：
+// 入库失败时状态机不应前移，否则重投会看到「已经在线」而跳过事件。
+func (p *Pipeline) writeByType(ctx context.Context, dec Decoded, rec DataRecord, raw RawRecord, now time.Time) error {
 	var err error
 	switch dec.Header.MsgType {
 	case model.MsgTypeData:
 		err = p.withRetry(ctx, func(ctx context.Context) error { return p.sink.WriteData(ctx, rec) })
+		if err == nil {
+			p.applyData(dec, now)
+		}
 	case model.MsgTypeEvent:
-		err = p.withRetry(ctx, func(ctx context.Context) error { return p.sink.WriteEvent(ctx, eventRecord(dec, raw, now)) })
+		ev := eventRecord(dec, raw, now)
+		err = p.withRetry(ctx, func(ctx context.Context) error { return p.sink.WriteEvent(ctx, ev) })
+		if err == nil {
+			p.applyDeviceEvent(ev)
+		}
 	case model.MsgTypeStatus:
-		err = p.withRetry(ctx, func(ctx context.Context) error { return p.sink.WriteStatus(ctx, statusRecord(dec, raw, now)) })
+		err = p.writeStatus(ctx, dec, raw, now)
 	default:
 		err = fmt.Errorf("%w: 未知 msgType %q", ErrParse, dec.Header.MsgType)
 	}
 	return err
+}
+
+// writeStatus 写状态报文。注入判定器时由它决定是否更新 terminal_state，
+// 未注入时退化为 008 的行为：留存状态记录与原文。
+func (p *Pipeline) writeStatus(ctx context.Context, dec Decoded, raw RawRecord, now time.Time) error {
+	rec := statusRecord(dec, raw, now)
+	if p.state != nil && dec.Status != nil {
+		tr := p.state.ApplyStatus(raw.TerminalID, dec.Status.Status, dec.Status.Reason,
+			time.UnixMilli(dec.Status.StatusTime), now)
+		rec.Changed = tr.Changed
+		rec.Status = tr.Status
+		rec.Reason = tr.Reason
+		snap := p.state.SnapshotOf(raw.TerminalID)
+		rec.LastData = snap.LastData
+		rec.LastSeen = snap.LastSeen
+	}
+	return p.withRetry(ctx, func(ctx context.Context) error { return p.sink.WriteStatus(ctx, rec) })
+}
+
+// applyData 推进 lastData 与在线状态。补传不推进，由 TermState 内部判定。
+//
+// 状态真的变化时才写 terminal_state：首次数据把终端从 UNKNOWN 带到 ONLINE 需要落库，
+// 之后每个周期数据到达都不该再刷一行。
+func (p *Pipeline) applyData(dec Decoded, now time.Time) {
+	if p.state == nil {
+		return
+	}
+	tr := p.state.ApplyData(dec.Header.Esn, time.UnixMilli(dec.Header.CollectTime),
+		dec.Header.Backfill, now)
+	if !tr.Changed {
+		return
+	}
+	p.persistTermSnapshot(context.Background(), dec.Header.Esn)
+}
+
+// persistTermSnapshot 把判定器的当前结论写进 terminal_state。
+// 写入失败只记录在返回错误里；调用方已在事务外，不能回滚已入库的测量。
+func (p *Pipeline) persistTermSnapshot(ctx context.Context, terminalID string) {
+	sink, ok := p.sink.(StateSink)
+	if !ok {
+		return
+	}
+	// 状态投影失败不回滚业务数据：状态会在下一个周期或巡检时重新写出。
+	// 这里不能把错误抛给调用方——报文已入库，抛错会让上层把整条消息当失败处理。
+	if err := p.withRetry(ctx, func(ctx context.Context) error {
+		return sink.WriteTermState(ctx, p.state.SnapshotOf(terminalID))
+	}); err != nil {
+		p.lastStateErr = err
+	}
+}
+
+// applyDeviceEvent 处理设备离线/恢复事件。终端级事件不在这里推进：
+// 那由 STATUS 报文与巡检负责，混在一起会让两级事件互相覆盖。
+func (p *Pipeline) applyDeviceEvent(ev EventRecord) {
+	if p.state == nil || ev.BusID == "" || ev.SlaveAddr == 0 {
+		return
+	}
+	switch ev.EventType {
+	case EventSensorOffline:
+		p.state.MarkDeviceOffline(ev.TerminalID, ev.BusID, ev.SlaveAddr)
+	case EventSensorRecovered:
+		p.state.MarkDeviceRecovered(ev.TerminalID, ev.BusID, ev.SlaveAddr)
+	}
 }
 
 func eventRecord(dec Decoded, raw RawRecord, now time.Time) EventRecord {
