@@ -429,3 +429,42 @@ func countIndex(path string) int {
 	}
 	return n
 }
+
+// ValidateTerminal 只跑单台终端的校验规则（V-01~V-09），供 edge-agent 启动时使用。
+//
+// 不跑 V-10：那是整份配置的规模核对（5 终端 / 10 总线 / 140 点），单台终端启动时
+// 必然不满足，报警只会变成每个终端的噪声。不跑 V-11 与主题模板：阈值与主题属于平台侧，
+// edge-agent 不读这两份文件，拿不到就不该判它。
+func ValidateTerminal(t *Terminal) Report {
+	b := &builder{}
+	validateTerminal(b, t, t.fileName())
+	sort.SliceStable(b.issues, func(i, j int) bool { return b.issues[i].Field < b.issues[j].Field })
+	return Report{
+		Issues:    b.issues,
+		Terminals: 1,
+		Buses:     len(t.Buses),
+		Slaves:    countSlaves(t),
+		Points:    countPoints(t),
+		Versions:  map[string]string{t.TerminalID: t.ConfigVersion},
+	}
+}
+
+func countSlaves(t *Terminal) int {
+	n := 0
+	for _, bus := range t.Buses {
+		n += len(bus.Devices)
+	}
+	return n
+}
+
+func countPoints(t *Terminal) int {
+	n := 0
+	for _, bus := range t.Buses {
+		for _, dev := range bus.Devices {
+			for _, blk := range dev.Blocks {
+				n += len(blk.Points)
+			}
+		}
+	}
+	return n
+}

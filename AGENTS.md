@@ -42,6 +42,7 @@ make logs            # 跟随全部容器日志
 go run ./cmd/config-tool verify            # 等价于 make verify-config 的校验部分
 go run ./cmd/config-tool seed -out /tmp/02_seed.sql
 go run ./cmd/edge-agent    -config config/terminals/ESN-ZX-0001.json
+go run ./cmd/edge-agent    -config config/terminals/ESN-ZX-0001.json -ports .pty/agent-ports.json   # 接模拟器
 go run ./cmd/proto-adapter -config config/adapter.toml
 docker compose --profile sim up modbus-slave-sim
 ```
