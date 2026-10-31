@@ -85,6 +85,16 @@ linters:
             - pkg: workshop-monitor/internal/adapter/ingest
               desc: evaluate 与 ingest 只能经有界 channel 连接，不得直接 import
 
+        config-no-business:
+          files:
+            - "internal/config/**"
+            - "**/internal/config/**"
+          deny:
+            - pkg: workshop-monitor/internal/agent
+              desc: 配置包不得依赖采集实现，否则 config-tool 会拖进串口与 MQTT
+            - pkg: workshop-monitor/internal/adapter
+              desc: 配置包不得依赖接入与判定实现
+
         sim-no-internal:
           files:
             - "sim/**"

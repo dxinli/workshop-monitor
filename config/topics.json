@@ -1,0 +1,15 @@
+{
+  "configVersion": "1.0.0",
+  "schemes": {
+    "grid": {
+      "dataUp": "/edge/{esn}/data/up",
+      "eventUp": "/edge/{esn}/event/up",
+      "statusUp": "/edge/{esn}/status/up"
+    },
+    "internal": {
+      "dataUp": "/workshop/{esn}/data/up",
+      "eventUp": "/workshop/{esn}/event/up",
+      "statusUp": "/workshop/{esn}/status/up"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed verify-config preflight logs clean check hooks passwd verify-broker
+.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker
 
 GO ?= go
 BIN_DIR := bin
@@ -32,8 +32,10 @@ help:
 	@echo "tidy-check    go mod tidy 后 go.mod/go.sum 须无变更"
 	@echo "up            启动全栈"
 	@echo "down          停止全栈"
-	@echo "seed          从 config/ 生成种子数据并导入"
-	@echo "verify-config 配置校验 V-01~V-12"
+	@echo "seed          导入 02_seed.sql（先 make seed-sql 生成）"
+	@echo "seed-sql      从 config/ 生成 02_seed.sql，不导入"
+	@echo "config-check  提交前：配置合法且 02_seed.sql 与配置同步"
+	@echo "verify-config 配置校验 V-01~V-11（V-12 由运行时记录）"
 	@echo "preflight     部署后自检"
 	@echo "passwd        从 .env 生成 Mosquitto 口令文件"
 	@echo "verify-broker 003 验收：认证、授权、LWT、两套命名方案"
@@ -45,7 +47,7 @@ help:
 # compose 语法检查补的是 .env.example，不是 .env：.env 不进版本库，CI 里没有。
 # compose 遇到未定义变量只告警不报错，于是「变量名写错」在本地和 CI 都不会暴露。
 # 这里把该告警升为失败：compose 引用的每个变量都必须在 .env.example 里有同名键。
-check: verify tidy-check fmt-check vet lint test build-static
+check: verify tidy-check fmt-check vet lint test build-static config-check
 	@if command -v docker >/dev/null 2>&1; then \
 		out=$$(docker compose -f deploy/docker-compose.yml \
 			--env-file deploy/versions.env --env-file .env.example config -q 2>&1); \
@@ -149,11 +151,37 @@ up: passwd
 down:
 	$(COMPOSE) down
 
-seed:
-	@echo "TODO: 从 config/ 生成种子数据并导入"
+# 导入 02_seed.sql。重复执行结果相同：脚本先清空配置域再重建。
+seed: bin/config-tool
+	@test -f deploy/timescaledb/init/02_seed.sql || { \
+		echo "先生成种子脚本：make seed-sql"; exit 1; }
+	$(COMPOSE) exec -T timescaledb sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f -' \
+		< deploy/timescaledb/init/02_seed.sql
 
-verify-config:
-	@echo "TODO: 配置校验 V-01~V-12"
+# 从 config/ 生成 02_seed.sql，不导入。配置改动后跑这个，把生成物一并提交。
+seed-sql: bin/config-tool
+	@bin/config-tool seed
+
+verify-config: bin/config-tool
+	@./scripts/verify-config.sh bin/config-tool
+
+# 提交前检查：配置合法，且 02_seed.sql 与配置文件同步。
+# 种子是生成物却要进仓库——tag 与 git diff 是唯一能证明「库里投影来自当前配置」的手段。
+config-check: bin/config-tool
+	@bin/config-tool verify >/dev/null
+	@tmp=$$(mktemp); \
+	 bin/config-tool seed -out "$$tmp" >/dev/null || { rm -f "$$tmp"; exit 1; }; \
+	 if ! diff -q "$$tmp" deploy/timescaledb/init/02_seed.sql >/dev/null; then \
+		echo "02_seed.sql 与 config/ 不一致，先执行 make seed-sql"; \
+		diff "$$tmp" deploy/timescaledb/init/02_seed.sql | head -20; \
+		rm -f "$$tmp"; exit 1; \
+	 fi; \
+	 rm -f "$$tmp"; echo "配置与种子脚本一致"
+
+# 配置校验与种子生成共用同一份二进制，两个目标都依赖它。
+bin/config-tool: $(shell find internal/config cmd/config-tool -name '*.go' 2>/dev/null)
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w" -o $@ ./cmd/config-tool
 
 preflight:
 	COMPOSE="$(COMPOSE)" ./scripts/preflight.sh

@@ -1,0 +1,570 @@
+{
+  "terminalId": "ESN-ZX-0005",
+  "configVersion": "1.0.0",
+  "workshop": "五号车间",
+  "line": "总装产线",
+  "collectIntervalMs": 5000,
+  "publishBatch": false,
+  "buses": [
+    {
+      "busId": "A",
+      "mode": "rtu-serial",
+      "port": "/dev/ttyV0",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 1000,
+      "retryCount": 2,
+      "interFrameMs": 4,
+      "devices": [
+        {
+          "slaveAddr": 1,
+          "name": "电机状态监测仪",
+          "type": "motor_monitor",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 2,
+              "points": [
+                {
+                  "code": "motor_temp",
+                  "name": "电机绕组温度",
+                  "siType": "YC",
+                  "dataType": "int16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "℃",
+                  "minValue": -20,
+                  "maxValue": 200
+                },
+                {
+                  "code": "motor_vib",
+                  "name": "电机振动速度",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "mm/s",
+                  "minValue": 0,
+                  "maxValue": 50
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 2,
+          "name": "三相电量仪表",
+          "type": "power_meter",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 7,
+              "points": [
+                {
+                  "code": "ia",
+                  "name": "A 相电流",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "A",
+                  "minValue": 0,
+                  "maxValue": 200
+                },
+                {
+                  "code": "ib",
+                  "name": "B 相电流",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "A",
+                  "minValue": 0,
+                  "maxValue": 200
+                },
+                {
+                  "code": "ic",
+                  "name": "C 相电流",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 2,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "A",
+                  "minValue": 0,
+                  "maxValue": 200
+                },
+                {
+                  "code": "uab",
+                  "name": "线电压",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 3,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "V",
+                  "minValue": 0,
+                  "maxValue": 500
+                },
+                {
+                  "code": "p_total",
+                  "name": "有功功率",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 4,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "kW",
+                  "minValue": 0,
+                  "maxValue": 600
+                },
+                {
+                  "code": "ep_forward",
+                  "name": "正向有功电能",
+                  "siType": "YC",
+                  "dataType": "uint32",
+                  "byteOrder": "AB",
+                  "addr": 5,
+                  "width": 2,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "kWh",
+                  "minValue": 0,
+                  "maxValue": 42949672.95
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 3,
+          "name": "温湿度变送器",
+          "type": "temp_humidity_transmitter",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 2,
+              "points": [
+                {
+                  "code": "env_temp",
+                  "name": "车间环境温度",
+                  "siType": "YC",
+                  "dataType": "int16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "℃",
+                  "minValue": -20,
+                  "maxValue": 60
+                },
+                {
+                  "code": "env_humi",
+                  "name": "车间环境湿度",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "%RH",
+                  "minValue": 0,
+                  "maxValue": 100
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 4,
+          "name": "安全状态采集模块",
+          "type": "safety_module",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 3,
+              "points": [
+                {
+                  "code": "door",
+                  "name": "安全门磁",
+                  "siType": "YX",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 1,
+                  "offset": 0,
+                  "unit": null,
+                  "minValue": 0,
+                  "maxValue": 1
+                },
+                {
+                  "code": "estop",
+                  "name": "急停按钮",
+                  "siType": "YX",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 1,
+                  "offset": 0,
+                  "unit": null,
+                  "minValue": 0,
+                  "maxValue": 1
+                },
+                {
+                  "code": "light_curtain",
+                  "name": "安全光幕",
+                  "siType": "YX",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 2,
+                  "width": 1,
+                  "scale": 1,
+                  "offset": 0,
+                  "unit": null,
+                  "minValue": 0,
+                  "maxValue": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 5,
+          "name": "气压变送器",
+          "type": "pressure_transmitter",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 1,
+              "points": [
+                {
+                  "code": "air_pressure",
+                  "name": "压缩空气压力",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.001,
+                  "offset": 0,
+                  "unit": "MPa",
+                  "minValue": 0,
+                  "maxValue": 1.6
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "busId": "B",
+      "mode": "rtu-serial",
+      "port": "/dev/ttyV1",
+      "baudRate": 9600,
+      "dataBits": 8,
+      "stopBits": 1,
+      "parity": "N",
+      "timeoutMs": 1000,
+      "retryCount": 2,
+      "interFrameMs": 4,
+      "devices": [
+        {
+          "slaveAddr": 1,
+          "name": "电机状态监测仪",
+          "type": "motor_monitor",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 2,
+              "points": [
+                {
+                  "code": "motor_temp",
+                  "name": "电机绕组温度",
+                  "siType": "YC",
+                  "dataType": "int16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "℃",
+                  "minValue": -20,
+                  "maxValue": 200
+                },
+                {
+                  "code": "motor_vib",
+                  "name": "电机振动速度",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "mm/s",
+                  "minValue": 0,
+                  "maxValue": 50
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 2,
+          "name": "三相电量仪表",
+          "type": "power_meter",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 7,
+              "points": [
+                {
+                  "code": "ia",
+                  "name": "A 相电流",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "A",
+                  "minValue": 0,
+                  "maxValue": 200
+                },
+                {
+                  "code": "ib",
+                  "name": "B 相电流",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "A",
+                  "minValue": 0,
+                  "maxValue": 200
+                },
+                {
+                  "code": "ic",
+                  "name": "C 相电流",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 2,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "A",
+                  "minValue": 0,
+                  "maxValue": 200
+                },
+                {
+                  "code": "uab",
+                  "name": "线电压",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 3,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "V",
+                  "minValue": 0,
+                  "maxValue": 500
+                },
+                {
+                  "code": "p_total",
+                  "name": "有功功率",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 4,
+                  "width": 1,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "kW",
+                  "minValue": 0,
+                  "maxValue": 600
+                },
+                {
+                  "code": "ep_forward",
+                  "name": "正向有功电能",
+                  "siType": "YC",
+                  "dataType": "uint32",
+                  "byteOrder": "AB",
+                  "addr": 5,
+                  "width": 2,
+                  "scale": 0.01,
+                  "offset": 0,
+                  "unit": "kWh",
+                  "minValue": 0,
+                  "maxValue": 42949672.95
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 3,
+          "name": "温湿度变送器",
+          "type": "temp_humidity_transmitter",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 2,
+              "points": [
+                {
+                  "code": "env_temp",
+                  "name": "车间环境温度",
+                  "siType": "YC",
+                  "dataType": "int16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "℃",
+                  "minValue": -20,
+                  "maxValue": 60
+                },
+                {
+                  "code": "env_humi",
+                  "name": "车间环境湿度",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 0.1,
+                  "offset": 0,
+                  "unit": "%RH",
+                  "minValue": 0,
+                  "maxValue": 100
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 4,
+          "name": "安全状态采集模块",
+          "type": "safety_module",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 3,
+              "points": [
+                {
+                  "code": "door",
+                  "name": "安全门磁",
+                  "siType": "YX",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 1,
+                  "offset": 0,
+                  "unit": null,
+                  "minValue": 0,
+                  "maxValue": 1
+                },
+                {
+                  "code": "estop",
+                  "name": "急停按钮",
+                  "siType": "YX",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 1,
+                  "width": 1,
+                  "scale": 1,
+                  "offset": 0,
+                  "unit": null,
+                  "minValue": 0,
+                  "maxValue": 1
+                },
+                {
+                  "code": "light_curtain",
+                  "name": "安全光幕",
+                  "siType": "YX",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 2,
+                  "width": 1,
+                  "scale": 1,
+                  "offset": 0,
+                  "unit": null,
+                  "minValue": 0,
+                  "maxValue": 1
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "slaveAddr": 5,
+          "name": "气压变送器",
+          "type": "pressure_transmitter",
+          "blocks": [
+            {
+              "functionCode": 3,
+              "startAddr": 0,
+              "registerCount": 1,
+              "points": [
+                {
+                  "code": "air_pressure",
+                  "name": "压缩空气压力",
+                  "siType": "YC",
+                  "dataType": "uint16",
+                  "byteOrder": "AB",
+                  "addr": 0,
+                  "width": 1,
+                  "scale": 0.001,
+                  "offset": 0,
+                  "unit": "MPa",
+                  "minValue": 0,
+                  "maxValue": 1.6
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
