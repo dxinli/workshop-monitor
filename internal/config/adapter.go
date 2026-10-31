@@ -17,7 +17,9 @@ type Adapter struct {
 	ClientID             string `json:"clientId"`
 	Username             string `json:"username"`
 	TopicsFile           string `json:"topicsFile"`
-	Database             struct {
+	// CollectIntervalMs 是终端采集周期，用于判数据超时（3 个周期）。与点表的 collectIntervalMs 一致。
+	CollectIntervalMs int `json:"collectIntervalMs"`
+	Database          struct {
 		URL               string `json:"url"`
 		MaxConns          int32  `json:"maxConns"`
 		ConnectTimeoutSec int    `json:"connectTimeoutSec"`
@@ -57,6 +59,8 @@ func (a *Adapter) validate() error {
 		return fmt.Errorf("qos 只支持 0 或 1，实际 %d", a.QoS)
 	case a.Queue.Capacity <= 0:
 		return fmt.Errorf("queue.capacity 必须为正整数，实际 %d", a.Queue.Capacity)
+	case a.CollectIntervalMs <= 0:
+		return fmt.Errorf("collectIntervalMs 必须为正整数，实际 %d", a.CollectIntervalMs)
 	case a.Database.MaxConns <= 0:
 		return fmt.Errorf("database.maxConns 必须为正整数，实际 %d", a.Database.MaxConns)
 	}

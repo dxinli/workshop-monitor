@@ -56,8 +56,16 @@ func run(configPath string) error {
 	}
 	defer pool.Close()
 
-	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password),
-		newHandler(ingest.NewPipeline(router, ingest.NewPGSink(pool), ingest.DefaultRetryPolicy())))
+	pipeline := ingest.NewPipeline(router, ingest.NewPGSink(pool), ingest.DefaultRetryPolicy())
+	// 巡检周期取采集周期：判离线的窗口是 3 个周期，巡检再快也只是重复判定。
+	pipeline.WithTermState(ingest.NewTermState(ingest.TermStateConfig{
+		OfflinePeriods:  3,
+		CollectInterval: time.Duration(cfg.CollectIntervalMs) * time.Millisecond,
+	}), cfg.CollectIntervalMs/1000)
+
+	go sweepLoop(ctx, pipeline, cfg.CollectIntervalMs)
+
+	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password), newHandler(pipeline))
 	if err != nil {
 		return err
 	}
@@ -102,6 +110,26 @@ func subscriptionOf(cfg *config.Adapter, filter, password string) ingest.Subscri
 		ConnectTimeout:    time.Duration(cfg.ConnectTimeoutSec) * time.Second,
 		ReconnectInterval: time.Duration(cfg.ReconnectIntervalSec) * time.Second,
 		MaxReconnect:      time.Duration(cfg.MaxReconnectSec) * time.Second,
+	}
+}
+
+// sweepLoop 周期性巡检终端状态。数据超时不靠报文触发，只能靠定时器发现。
+//
+// 巡检与订阅回调并发访问判定器，TermState 内部加锁；写库走同一连接池。
+func sweepLoop(ctx context.Context, p *ingest.Pipeline, intervalMs int) {
+	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if err := p.Sweep(ctx, now); err != nil {
+				fmt.Fprintf(os.Stderr, "level=error svc=adapter inst=adapter msg=%q err=%q\n",
+					"状态巡检失败", err.Error())
+			}
+		}
 	}
 }
 

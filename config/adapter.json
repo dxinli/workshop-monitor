@@ -9,6 +9,7 @@
   "clientId": "adapter-workshop",
   "username": "workshop_adapter",
   "topicsFile": "config/topics.json",
+  "collectIntervalMs": 5000,
   "database": {
     "url": "postgres://workshop_adapter@localhost:5432/workshop_monitor?sslmode=disable",
     "maxConns": 8,
