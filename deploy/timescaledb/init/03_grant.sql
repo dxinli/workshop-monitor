@@ -30,8 +30,11 @@ GRANT SELECT ON
   v_energy_hourly, v_quality_stat, v_raw_recent, v_terminal_overview
 TO workshop_dashboard;
 
--- workshop_notify：notify_log 读写；配置域只读 §6
+-- workshop_notify：notify_log 读写；配置域 + 告警只读 §6
 GRANT SELECT ON terminal, bus, device, point, threshold TO workshop_notify;
+-- alarm 只读：卡片要带 alarmId，notify_log.alarm_id 是它的外键。
+-- 只读是刻意的——通知失败不回滚告警，编排层不该有改告警状态的能力。
+GRANT SELECT ON alarm TO workshop_notify;
 GRANT SELECT, INSERT, UPDATE, DELETE ON notify_log TO workshop_notify;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA monitor TO workshop_notify;
 

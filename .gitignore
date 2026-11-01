@@ -13,3 +13,13 @@ __pycache__/
 dist/
 coverage.out
 deploy/mosquitto/passwd
+
+# Node-RED 的运行时产物：deploy/node-red 整目录挂到容器 /data，
+# 版本库里只留 flows.json 与 settings.js。
+deploy/node-red/.config.*
+deploy/node-red/.flows.json.backup
+deploy/node-red/flows_cred.json
+deploy/node-red/package.json
+deploy/node-red/package-lock.json
+deploy/node-red/lib/
+deploy/node-red/node_modules/

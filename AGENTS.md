@@ -12,6 +12,7 @@
 
 Go 依赖：`eclipse/paho.mqtt.golang` v1.4.3、`go.etcd.io/bbolt` v1.3.11、`jackc/pgx/v5` v5.7.1、`rs/zerolog` v1.33.0、`goburrow/serial` v0.1.0
 Python 依赖：`pymodbus` 3.7.4、`fastapi` 0.115.5、`uvicorn` 0.32.1、`pydantic` 2.9.2
+Node-RED 依赖：`node-red-contrib-postgresql` 0.16.2（官方镜像不带数据库节点，写投递日志要用它）
 
 版本一律锁补丁号，镜像标签唯一来源 `deploy/versions.env`。出现 `latest` 或 `^`/`~` 范围视为缺陷。
 
