@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -46,6 +47,9 @@ type UplinkConfig struct {
 	AgentVersion string
 	OfflineLimit int
 	Now          func() time.Time
+	// Cache 是本地持久队列。为空时行为退化为「发布失败只记日志」——
+	// 只有测试会这么用，生产装配必须给。
+	Cache *Cache
 }
 
 // Uplink 组装三类上行报文：
@@ -58,6 +62,9 @@ type Uplink struct {
 	queue chan Batch
 	drops atomic.Int64
 	start time.Time
+	// mu 保护「取号 + 发布 + 入队」这一整段：两条总线的上报并发跑，
+	// 序号必须严格递增，且同一批的数据与事件要挨着进队列。006 复查时提过这一点。
+	mu sync.Mutex
 }
 
 // NewUplink 校验装配参数。
@@ -137,10 +144,17 @@ func (u *Uplink) Run(ctx context.Context) {
 // 数据发不出去就返回错误（007 据此落盘）；事件失败只记日志——重试一条事件
 // 不该挡住后续周期的数据，而且事件本身会在下一个周期重新判定。
 func (u *Uplink) SendBatch(b Batch) error {
-	if err := u.sendData(b); err != nil {
-		return err
-	}
-	for _, ev := range u.watch.Observe(b) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	// 事件判定放在发布之前：断网时数据发不出去，但设备失败计数必须照常推进，
+	// 否则 SENSOR_OFFLINE 永远攒不出来（006 留下的缺陷，007 修掉）。
+	events := u.watch.Observe(b)
+
+	// 数据发不出去也要继续处理事件：断网期间设备离线/恢复必须攒进队列，
+	// 恢复联网后平台才知道这台设备期间掉过线。
+	dataErr := u.sendData(b)
+	for _, ev := range events {
 		if err := u.sendEvent(ev); err != nil {
 			u.cfg.Log.Warn("事件上报失败",
 				pkglog.F("esn", u.cfg.Esn), pkglog.F("eventType", ev.EventType),
@@ -153,7 +167,63 @@ func (u *Uplink) SendBatch(b Batch) error {
 			pkglog.F("busId", ev.BusID), pkglog.F("slaveAddr", ev.SlaveAddr),
 			pkglog.F("reason", ev.Reason), pkglog.F("failureCount", ev.FailureCount))
 	}
-	return nil
+	return dataErr
+}
+
+// WireCacheEvents 把队列的丢弃与预警回调接到事件上报上（BR-21 / BR-22）。
+//
+// 调用方在起协程之前调一次。回调里发的都是 EVENT 报文，与数据共用同一序号空间。
+func (u *Uplink) WireCacheEvents() {
+	if u.cfg.Cache == nil {
+		return
+	}
+	u.cfg.Cache.OnDropped(func(count int) {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		u.emitSystemEvent(model.EventBody{
+			EventType: "CACHE_DROPPED",
+			EventTime: u.cfg.Now().UnixMilli(),
+			Reason:    "CACHE_OVERFLOW",
+			Detail:    fmt.Sprintf("累计丢弃 %d 条", count),
+		})
+	})
+	u.cfg.Cache.OnWarning(func(dimension string) {
+		u.mu.Lock()
+		defer u.mu.Unlock()
+		u.emitSystemEvent(model.EventBody{
+			EventType: "CACHE_WARNING",
+			EventTime: u.cfg.Now().UnixMilli(),
+			Reason:    "USAGE_OVER_WARN",
+			Detail:    fmt.Sprintf("缓存维度 %s 达预警线", dimension),
+		})
+	})
+}
+
+// emitSystemEvent 发一条与具体总线无关的事件。缓存类事件没有 busId / slaveAddr，
+// 沿用 EventBody 但不填这两个字段。调用方必须已持有 u.mu。
+//
+// 与 sendEvent 的区别是**失败不落队列**：缓存类事件描述的就是队列自身的状态，
+// 把它们再塞回队列会在「队列已满 → 丢弃 → 发事件 → 又入队 → 又满」之间递归。
+func (u *Uplink) emitSystemEvent(ev model.EventBody) {
+	header, err := u.header(model.MsgTypeEvent, ev.EventTime)
+	if err != nil {
+		u.cfg.Log.Warn("缓存事件取号失败", pkglog.F("err", err.Error()))
+		return
+	}
+	payload, err := EncodeUplink(header, ev)
+	if err != nil {
+		u.cfg.Log.Warn("缓存事件序列化失败", pkglog.F("err", err.Error()))
+		return
+	}
+	if err := u.cfg.Link.Publish(u.cfg.Topics.Event, payload, false); err != nil {
+		u.cfg.Log.Warn("缓存事件上报失败",
+			pkglog.F("esn", u.cfg.Esn), pkglog.F("eventType", ev.EventType),
+			pkglog.F("err", err.Error()))
+		return
+	}
+	u.cfg.Log.Info("缓存事件已上报",
+		pkglog.F("esn", u.cfg.Esn), pkglog.F("eventType", ev.EventType),
+		pkglog.F("detail", ev.Detail))
 }
 
 // OnConnected 是连接（重连）成功后的回调：发布 ONLINE，Retain。
@@ -201,6 +271,7 @@ func (u *Uplink) sendData(b Batch) error {
 		return err
 	}
 	if err := u.cfg.Link.Publish(u.cfg.Topics.Data, payload, false); err != nil {
+		u.persist(header, u.cfg.Topics.Data, payload, false)
 		return fmt.Errorf("上报数据 seq=%d bus=%s: %w", header.Seq, b.BusID, err)
 	}
 	u.cfg.Log.Debug("数据已上报",
@@ -219,9 +290,36 @@ func (u *Uplink) sendEvent(ev model.EventBody) error {
 		return err
 	}
 	if err := u.cfg.Link.Publish(u.cfg.Topics.Event, payload, false); err != nil {
+		u.persist(header, u.cfg.Topics.Event, payload, false)
 		return fmt.Errorf("上报事件 %s: %w", ev.EventType, err)
 	}
 	return nil
+}
+
+// persist 把发不出去的报文落本地队列（BR-19）。出队凭据是 PUBACK，不是「已发出」。
+//
+// 入队本身失败时只能记日志并计数——此时既发不出去也存不下，丢的是这一条，
+// 但必须留痕，不许静默。
+func (u *Uplink) persist(h model.Header, topic string, payload []byte, retain bool) {
+	if u.cfg.Cache == nil {
+		return
+	}
+	item := CacheItem{
+		Seq:           h.Seq,
+		CollectTime:   h.CollectTime,
+		Topic:         topic,
+		Payload:       payload,
+		Retain:        retain,
+		FirstFailTime: u.cfg.Now().UnixMilli(),
+	}
+	if err := u.cfg.Cache.Append(item); err != nil {
+		u.cfg.Log.Error("落本地队列失败，本条丢失",
+			pkglog.F("esn", u.cfg.Esn), pkglog.F("seq", h.Seq),
+			pkglog.F("topic", topic), pkglog.F("err", err.Error()))
+		return
+	}
+	u.cfg.Log.Info("上行失败，已落本地队列",
+		pkglog.F("esn", u.cfg.Esn), pkglog.F("seq", h.Seq), pkglog.F("topic", topic))
 }
 
 func (u *Uplink) statusPayload(status, reason string) (string, []byte, error) {

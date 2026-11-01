@@ -174,6 +174,13 @@ func (l *MQTTLink) Publish(topic string, payload []byte, retain bool) error {
 	return nil
 }
 
+// Connected 报告当前是否有可用连接。补传段据此让出：断网时重试只会刷日志。
+func (l *MQTTLink) Connected() bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.client != nil && l.client.IsConnectionOpen()
+}
+
 // Disconnect 断开连接。调用方先发完 OFFLINE 再调这里：先断开会让 Broker 直接下发遗嘱，
 // 优雅退出的原因就丢成了 UNEXPECTED_DISCONNECT。
 func (l *MQTTLink) Disconnect(quiesceMs uint) {

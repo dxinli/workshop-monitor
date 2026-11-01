@@ -28,6 +28,7 @@ func main() {
 	portsPath := flag.String("ports", "", "串口端点表（仿真用），不填则按点表里的 port 打开")
 	topicsPath := flag.String("topics", "config/topics.json", "主题模板文件，主题字符串的唯一来源")
 	seqPath := flag.String("seq", "var/seq.state", "序号高水位文件；空串表示不持久化（重启会归零）")
+	cachePath := flag.String("cache", "var/cache.db", "本地持久队列文件；空串表示不落盘（断网期间数据只在内存里）")
 	logLevel := flag.String("log-level", "info", "日志级别 debug / info / warn / error")
 	flag.Parse()
 
@@ -47,6 +48,7 @@ func main() {
 		portsPath:  *portsPath,
 		topicsPath: *topicsPath,
 		seqPath:    *seqPath,
+		cachePath:  *cachePath,
 	}
 	if err := run(opts, level); err != nil {
 		fmt.Fprintf(os.Stderr, "edge-agent 退出：%v\n", err)
@@ -59,17 +61,21 @@ type options struct {
 	portsPath  string
 	topicsPath string
 	seqPath    string
+	cachePath  string
 }
 
 // agentRuntime 是装配好的运行期依赖，只在 run 内使用。
 type agentRuntime struct {
-	term     *config.Terminal
-	log      *pkglog.Logger
-	settings uplinkSettings
-	buses    []io.ReadWriter
-	alloc    *agent.SeqAllocator
-	link     *agent.MQTTLink
-	uplink   *agent.Uplink
+	term      *config.Terminal
+	log       *pkglog.Logger
+	settings  uplinkSettings
+	buses     []io.ReadWriter
+	alloc     *agent.SeqAllocator
+	link      *agent.MQTTLink
+	uplink    *agent.Uplink
+	cache     *agent.Cache
+	cacheSpec cacheSettings
+	backfill  *agent.Backfill
 }
 
 // run 按 rules/edge-agent.md 的启动顺序装配：
@@ -91,6 +97,10 @@ func run(opts options, level pkglog.Level) error {
 	if err := rt.link.Connect(ctx); err != nil {
 		return err
 	}
+	// 上次退出时队列里可能还有货，连上就先补一轮。
+	if rt.backfill != nil {
+		rt.backfill.Notify()
+	}
 	rt.logStarted()
 
 	var wg sync.WaitGroup
@@ -102,7 +112,7 @@ func run(opts options, level pkglog.Level) error {
 	return nil
 }
 
-// setup 完成建连之前的所有装配：配置、串口、序号、上报段与连接对象。
+// setup 完成建连之前的所有装配：配置、串口、序号、本地队列、上报段与连接对象。
 func setup(opts options, level pkglog.Level) (*agentRuntime, func(), error) {
 	term, err := config.LoadTerminal(opts.configPath)
 	if err != nil {
@@ -127,18 +137,47 @@ func setup(opts options, level pkglog.Level) (*agentRuntime, func(), error) {
 		return nil, nil, err
 	}
 
-	alloc, err := agent.LoadSeqAllocator(opts.seqPath)
+	rt, err := openRuntime(opts, term, log, settings, buses)
 	if err != nil {
 		closeAll()
 		return nil, nil, err
 	}
-
-	rt := &agentRuntime{term: term, log: log, settings: settings, buses: buses, alloc: alloc}
 	if err := rt.connect(); err != nil {
+		rt.closeCache()
 		closeAll()
 		return nil, nil, err
 	}
 	return rt, closeAll, nil
+}
+
+// openRuntime 装配序号分配器与本地队列，并按两者的较大值续接序号。
+func openRuntime(opts options, term *config.Terminal, log *pkglog.Logger,
+	settings uplinkSettings, buses []io.ReadWriter) (*agentRuntime, error) {
+	alloc, err := agent.LoadSeqAllocator(opts.seqPath)
+	if err != nil {
+		return nil, err
+	}
+
+	cacheSpec, err := loadCacheSettings(opts.cachePath)
+	if err != nil {
+		return nil, err
+	}
+	cache, err := openCache(opts.cachePath, cacheSpec.spec, log)
+	if err != nil {
+		return nil, err
+	}
+
+	// 序号续接取 max(文件高水位, 队列最大 seq)：只读一处都会重号，
+	// 重号会被接入段的消息级幂等判成重复后静默丢弃（006 偏差 1 的交接条件）。
+	if cache != nil {
+		if err := resumeSeq(alloc, cache); err != nil {
+			_ = cache.Close()
+			return nil, err
+		}
+	}
+
+	return &agentRuntime{term: term, log: log, settings: settings, buses: buses,
+		alloc: alloc, cache: cache, cacheSpec: cacheSpec}, nil
 }
 
 // connect 组装上报段与 MQTT 连接。
@@ -153,11 +192,28 @@ func (rt *agentRuntime) connect() error {
 	if err != nil {
 		return err
 	}
-	if u, err = newUplink(rt.term, rt.settings, rt.alloc, link, rt.log); err != nil {
+	if u, err = newUplink(rt.term, rt.settings, rt.alloc, link, rt.log, rt.cache); err != nil {
 		return err
 	}
 	rt.link = link
 	rt.uplink = u
+
+	// 丢弃与预警回调接到事件上报上：BR-21 / BR-22 的唯一落点。
+	u.WireCacheEvents()
+
+	if rt.cache != nil {
+		return rt.loadBackfill(link)
+	}
+	return nil
+}
+
+// loadBackfill 组装补传段。连接状态直接问 link：断网时补传让出，不空转。
+func (rt *agentRuntime) loadBackfill(link *agent.MQTTLink) error {
+	b, err := agent.NewBackfill(rt.cache, link, rt.cacheSpec.backfill, rt.log, link.Connected)
+	if err != nil {
+		return err
+	}
+	rt.backfill = b
 	return nil
 }
 
@@ -166,10 +222,11 @@ func (rt *agentRuntime) connect() error {
 // 采集出口先把批次记成周期聚合日志再入上行队列：两条都是非阻塞的，
 // 日志留在本地、数据走上行，现场排查与平台取证各取所需（005 的偏差 5）。
 func (rt *agentRuntime) startWorkers(ctx context.Context, wg *sync.WaitGroup) {
-	for _, fn := range []func(context.Context){
-		rt.link.Run,
-		rt.uplink.Run,
-	} {
+	workers := []func(context.Context){rt.link.Run, rt.uplink.Run}
+	if rt.backfill != nil {
+		workers = append(workers, rt.backfill.Run)
+	}
+	for _, fn := range workers {
 		wg.Add(1)
 		go func(f func(context.Context)) {
 			defer wg.Done()
@@ -198,8 +255,20 @@ func (rt *agentRuntime) shutdown() {
 		rt.log.Warn("优雅退出状态发布失败", pkglog.F("err", err.Error()))
 	}
 	rt.link.Disconnect(250)
+	rt.closeCache()
 	rt.log.Info("采集已停止", pkglog.F("esn", rt.term.TerminalID),
 		pkglog.F("lastSeq", rt.alloc.Current()))
+}
+
+// closeCache 关闭本地队列。队列没开着（path 为空）时什么也不做。
+func (rt *agentRuntime) closeCache() {
+	if rt.cache == nil {
+		return
+	}
+	if err := rt.cache.Close(); err != nil {
+		rt.log.Warn("关闭本地队列失败", pkglog.F("err", err.Error()))
+	}
+	rt.cache = nil
 }
 
 func (rt *agentRuntime) logStarted() {
@@ -217,7 +286,7 @@ func (rt *agentRuntime) logStarted() {
 // TimeSync 固定为 true：是否已同步时钟由平台按 collectTime 与接收时间判定，
 // 终端侧没有可信参照时钟时无法自证。置 false 的开关不在本任务范围（见偏差）。
 func newUplink(term *config.Terminal, s uplinkSettings, alloc *agent.SeqAllocator,
-	link agent.Publisher, log *pkglog.Logger) (*agent.Uplink, error) {
+	link agent.Publisher, log *pkglog.Logger, cache *agent.Cache) (*agent.Uplink, error) {
 	return agent.NewUplink(agent.UplinkConfig{
 		Esn:          term.TerminalID,
 		Topics:       s.topics,
@@ -227,6 +296,7 @@ func newUplink(term *config.Terminal, s uplinkSettings, alloc *agent.SeqAllocato
 		TimeSync:     true,
 		AgentVersion: agentVersion,
 		OfflineLimit: defaultOfflineLimit,
+		Cache:        cache,
 	})
 }
 
