@@ -23,3 +23,7 @@ deploy/node-red/package.json
 deploy/node-red/package-lock.json
 deploy/node-red/lib/
 deploy/node-red/node_modules/
+
+# 编辑器本地配置，不进版本库
+.vscode/
+.idea/

@@ -54,6 +54,11 @@
       "name": "能耗口径：功率取均值、电能取末值差",
       "passed": true,
       "detail": "功率 avg(value)/avg(avg_value) 后按车间汇总；电能按测点 max-min 求差再按车间求和；无 sum(value) 形式的功率累加"
+    },
+    {
+      "name": "面板 unit 覆盖均为 Grafana 支持的写法",
+      "passed": true,
+      "detail": "初版 80 处 dateTime: 覆盖在 Grafana 11.3 下无效（getValueFormat 只认 prefix/suffix/time/si/count/currency/bool），已全部删除，改由 GF_DATE_FORMATS_FULL_DATE=YYYY-MM-DD HH:mm:ss.SSS 统一控制；验收脚本对未知 unit 前缀失败"
     }
   ]
 }
