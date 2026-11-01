@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"workshop-monitor/internal/config"
@@ -39,6 +40,12 @@ type PointReading struct {
 	Quality   int      `json:"quality"`
 }
 
+// busDownCycles 是判「整条总线不通」需要的连续失败周期数。
+//
+// 取 5 与设备离线阈值一致：单个周期全失败可能只是干扰，连续 5 个周期
+// （默认 25 秒）一个字节都没读回来，说明链路本身断了，不是某台设备的问题。
+const busDownCycles = 5
+
 // BusPoller 是单条总线的轮询协程。持有自己的串口句柄与点表，不与其它总线共享状态。
 type BusPoller struct {
 	terminal *config.Terminal
@@ -46,6 +53,10 @@ type BusPoller struct {
 	port     io.ReadWriter
 	sink     func(Batch)
 	now      func() time.Time
+
+	// busyFail 是连续「整条总线一个字节都没读回」的周期数，供健康检查判定总线是否可用。
+	// 由轮询协程单写、健康检查只读，用原子量避免跨协程加锁。
+	busFail atomic.Int32
 }
 
 // NewBusPoller 装配一条总线的轮询器。port 由调用方打开并负责关闭——
@@ -77,6 +88,13 @@ func (p *BusPoller) Run(ctx context.Context) {
 	}
 }
 
+// BusID 返回这条总线的标识（"A" / "B"），健康检查按它出报告。
+func (p *BusPoller) BusID() string { return p.bus.BusID }
+
+// BusUp 报告这条总线最近是否还在正常通信。连续 busDownCycles 个周期整条总线
+// 读不回任何数据时返回 false，健康检查据此报 503。
+func (p *BusPoller) BusUp() bool { return p.busFail.Load() < busDownCycles }
+
 // Collect 跑一个完整周期：从站地址升序，每从站按寄存器块发一次请求。
 //
 // collectTime 取本批**开始**时刻。逐块取时间会让同批测点时间不一致，曲线出现锯齿。
@@ -106,7 +124,28 @@ func (p *BusPoller) Collect() Batch {
 			batch.Bad++
 		}
 	}
+	p.trackBusHealth(batch.Points)
 	return batch
+}
+
+// trackBusHealth 按本周期读数判定总线是否还活着。
+//
+// 只看「通信层」失败：超时、CRC 错、帧格式不符都说明一个字节都没读回来。
+// 设备异常应答（质量码 1）与超量程（5）说明从站答复了，总线是通的，不计入。
+func (p *BusPoller) trackBusHealth(points []PointReading) {
+	if len(points) == 0 {
+		return
+	}
+	for _, pt := range points {
+		switch pt.Quality {
+		case model.QualityTimeout, model.QualityCRCError, model.QualityParseError:
+			continue
+		default:
+			p.busFail.Store(0)
+			return
+		}
+	}
+	p.busFail.Add(1)
 }
 
 // sortedDevices 复制一份按从站地址升序的设备列表，不改动点表本身（多条总线共享终端结构体）。

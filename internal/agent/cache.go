@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -67,11 +68,12 @@ type Cache struct {
 	spec CacheSpec
 	now  func() time.Time
 
-	dropped    int64 // 累计丢弃（自上次上报起）
-	totalBytes int64 // 队列总字节，随写随算，避免每次裁剪都全表扫
-	onDrop     func(count int)
-	onWarn     func(dimension string)
-	warned     map[string]bool
+	dropped      int64 // 累计丢弃（自上次上报起，满 DropBatch 归零）
+	droppedTotal int64 // 累计丢弃（自进程启动起，只增不减，供健康检查）
+	totalBytes   int64 // 队列总字节，随写随算，避免每次裁剪都全表扫
+	onDrop       func(count int)
+	onWarn       func(dimension string)
+	warned       map[string]bool
 }
 
 // OpenCache 打开（或新建）本地队列。外部资源从参数传入，不在模块内部 new。
@@ -314,11 +316,16 @@ func (c *Cache) dropOverBytes(b *bolt.Bucket) (int, error) {
 	return dropped, nil
 }
 
+// DroppedTotal 返回自进程启动起的累计丢弃条数。健康检查用这个，不能用批内计数：
+// 批内计数每满 DropBatch 归零，健康检查读到 0 会误判成「没丢过」。
+func (c *Cache) DroppedTotal() int64 { return atomic.LoadInt64(&c.droppedTotal) }
+
 // reportDropped 按批上报丢弃：满 DropBatch 条报一次并清零，不足一批继续累计。
 func (c *Cache) reportDropped(n int) {
 	if n == 0 {
 		return
 	}
+	atomic.AddInt64(&c.droppedTotal, int64(n))
 	c.dropped += int64(n)
 	batch := c.spec.DropBatch
 	if batch <= 0 {

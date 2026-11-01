@@ -105,6 +105,14 @@ func (s *Subscriber) dispatch(_ mqtt.Client, msg mqtt.Message) {
 }
 
 // Disconnect 断开连接。优雅退出时调用，断开后 Broker 才会下发 LWT 之外的状态。
+// Connected 报告订阅连接当前是否可用。健康检查读它判断接入链路是否还在。
+//
+// 读 client 不加锁：client 只在 Connect 里赋值一次（发生在启动阶段、任何读者出现之前），
+// 此后的重连由 paho 的 AutoReconnect 在内部完成，指针本身不再变化。
+func (s *Subscriber) Connected() bool {
+	return s.client != nil && s.client.IsConnectionOpen()
+}
+
 func (s *Subscriber) Disconnect(quiesceMs uint) {
 	if s.client != nil {
 		s.client.Disconnect(quiesceMs)

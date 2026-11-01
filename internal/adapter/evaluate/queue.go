@@ -41,6 +41,9 @@ func (q *Queue) Push(s Sample) {
 	}
 }
 
+// Received 返回已成功进入队列的读数条数。健康检查用它判断判定段是否在消费。
+func (q *Queue) Received() int64 { return q.received.Load() }
+
 // Dropped 返回被丢弃的读数条数。持续增长表示判定跟不上入库，告警会漏。
 func (q *Queue) Dropped() int64 { return q.dropped.Load() }
 

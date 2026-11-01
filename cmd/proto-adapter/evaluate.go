@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"workshop-monitor/internal/adapter/evaluate"
+	"workshop-monitor/internal/adapter/health"
 	"workshop-monitor/internal/adapter/ingest"
 	"workshop-monitor/internal/model"
 )
@@ -32,6 +33,7 @@ type evaluateDeps struct {
 	queue  *evaluate.Queue
 	notify *evaluate.NotifyQueue
 	eval   *evaluate.Evaluator
+	store  evaluate.Store
 }
 
 // buildEvaluate 装配判定段：阈值快照 → 活动集合重建 → 队列与通知出口。
@@ -60,7 +62,36 @@ func buildEvaluate(ctx context.Context, capacity int, store evaluate.Store) (*ev
 	if err := ev.Bootstrap(ctx); err != nil {
 		return nil, err
 	}
-	return &evaluateDeps{queue: queue, notify: notifyQ, eval: ev}, nil
+	return &evaluateDeps{queue: queue, notify: notifyQ, eval: ev, store: store}, nil
+}
+
+// healthStats 取判定段指标。队列与判定器各报一半，这里合成一份给健康检查，
+// 健康检查因此不必持有两个对象的指针。
+func (d *evaluateDeps) healthStats() health.EvaluateStats {
+	if d == nil {
+		return health.EvaluateStats{}
+	}
+	st := d.eval.Stats()
+	return health.EvaluateStats{
+		QueueDepth:       d.queue.Depth(),
+		QueueCapacity:    d.queue.Capacity(),
+		DropCount:        d.queue.Dropped(),
+		ActiveAlarmCount: st.ActiveAlarmCount,
+		DebounceKeys:     st.DebounceKeys,
+		LastEvalTime:     d.eval.LastEvalTime(),
+	}
+}
+
+// activeInDB 读库中未恢复的告警数，供健康检查与内存集合对账。
+func (d *evaluateDeps) activeInDB(ctx context.Context) (int, error) {
+	if d == nil || d.store == nil {
+		return 0, fmt.Errorf("判定段未装配")
+	}
+	rows, err := d.store.ActiveAlarms(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return len(rows), nil
 }
 
 // dispatch 把一条报文的读数投递进判定队列。

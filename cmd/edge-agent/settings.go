@@ -68,6 +68,20 @@ func resolveTopics(esn, topicsPath string) (string, agent.UplinkTopics, error) {
 	return scheme, topics, nil
 }
 
+// defaultHealthAddr 是健康检查端口的默认监听地址。
+//
+// 端口按概要设计 §2.7 的 edge 分组 9101~9105 定址，本进程取 9101；
+// 同一主机跑 5 个实例时由 HEALTH_ADDR 逐个覆盖（9102~9105）。
+const defaultHealthAddr = "127.0.0.1:9101"
+
+// loadHealthAddr 读健康检查监听地址。
+//
+// 默认只听本机回环：健康检查面向同机运维与 preflight，暴露到车间网会变成
+// 一个谁都能问「这台终端什么情况」的公开接口。
+func loadHealthAddr() string {
+	return envOr("HEALTH_ADDR", defaultHealthAddr)
+}
+
 // resolveMQTT 读连接参数。地址与口令没有默认值：猜一个 localhost 会让现场
 // 把「配置缺失」误判成「网络不通」。
 func resolveMQTT(esn string) (agent.MQTTConfig, error) {
