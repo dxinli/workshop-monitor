@@ -329,12 +329,22 @@ func (u *Uplink) statusPayload(status, reason string) (string, []byte, error) {
 		return "", nil, err
 	}
 	body := model.StatusBody{
-		Status:     status,
-		StatusTime: now.UnixMilli(),
-		Reason:     reason,
-		// 缓存深度与占用归 007；本期没有持久队列，如实上报 0。
+		Status:       status,
+		StatusTime:   now.UnixMilli(),
+		Reason:       reason,
 		UptimeSec:    int64(now.Sub(u.start).Seconds()),
 		AgentVersion: u.cfg.AgentVersion,
+	}
+	// 缓存深度与占用取自真实队列。读失败就报 0 并在日志留痕——
+	// 状态报文不该因为读不到队列而发不出去。
+	if u.cfg.Cache != nil {
+		st, err := u.cfg.Cache.Stats()
+		if err != nil {
+			u.cfg.Log.Warn("读缓存占用失败，状态报文按 0 上报", pkglog.F("err", err.Error()))
+		} else {
+			body.CacheDepth = st.Items
+			body.CacheBytes = st.Bytes
+		}
 	}
 	payload, err := EncodeUplink(header, body)
 	if err != nil {

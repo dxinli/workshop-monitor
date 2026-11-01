@@ -256,3 +256,34 @@ func containsEventType(t *testing.T, payload []byte, want string) bool {
 	}
 	return env.Body.EventType == want
 }
+
+// TestStatusReportsRealCacheDepth 验状态报文里的 cacheDepth / cacheBytes 取自真实队列，
+// 而不是像 006 那样固定报 0——平台侧看缓存积压就靠这两个字段。
+func TestStatusReportsRealCacheDepth(t *testing.T) {
+	now := time.UnixMilli(1793500200123)
+	c := cacheAt(t, now)
+	broker := &recordingBroker{}
+	u := newCachedUplink(t, c, broker)
+
+	for seq := int64(1); seq <= 3; seq++ {
+		if err := c.Append(itemAt(seq, now, 0, 10)); err != nil {
+			t.Fatalf("入队: %v", err)
+		}
+	}
+	if err := u.SendStatus(StatusOnline, ReasonConnected); err != nil {
+		t.Fatalf("发状态: %v", err)
+	}
+
+	var env struct {
+		Body model.StatusBody `json:"body"`
+	}
+	if err := json.Unmarshal(broker.snapshot()[0].payload, &env); err != nil {
+		t.Fatalf("解析状态报文: %v", err)
+	}
+	if env.Body.CacheDepth != 3 {
+		t.Fatalf("cacheDepth=%d，期望 3", env.Body.CacheDepth)
+	}
+	if env.Body.CacheBytes <= 0 {
+		t.Fatalf("cacheBytes=%d，期望大于 0", env.Body.CacheBytes)
+	}
+}
