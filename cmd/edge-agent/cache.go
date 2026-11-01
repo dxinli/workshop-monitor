@@ -11,14 +11,11 @@ import (
 	"workshop-monitor/internal/pkglog"
 )
 
-// 缓存参数的默认值取自接口规范 §9.4 的冻结值，环境变量可覆盖（附录 B）。
+// 补传限速的默认值（接口规范 §9.3 第 5 条）。缓存三上限的默认值在 agent 包里，
+// 这里只引用不复写——两个真值迟早会漂。
 const (
-	defaultCacheMaxDays   = 7
-	defaultCacheMaxItems  = 300000
-	defaultCacheMaxBytes  = 536870912 // 512 MB
-	defaultCacheWarnRatio = 0.8
-	defaultBackfillBatch  = 500
-	defaultBackfillGapMs  = 50
+	defaultBackfillBatch = 500
+	defaultBackfillGapMs = 50
 )
 
 // cacheSettings 是本地队列与补传的参数。
@@ -46,19 +43,19 @@ func loadCacheSettings(dbPath string) (cacheSettings, error) {
 
 // loadCacheSpec 读三上限与预警比例（接口规范 §9.4，附录 B）。
 func loadCacheSpec() (agent.CacheSpec, error) {
-	days, err := intEnv("CACHE_MAX_DAYS", defaultCacheMaxDays)
+	days, err := intEnv("CACHE_MAX_DAYS", agent.DefaultCacheMaxDays)
 	if err != nil {
 		return agent.CacheSpec{}, err
 	}
-	items, err := intEnv("CACHE_MAX_ITEMS", defaultCacheMaxItems)
+	items, err := intEnv("CACHE_MAX_ITEMS", agent.DefaultCacheMaxItems)
 	if err != nil {
 		return agent.CacheSpec{}, err
 	}
-	maxBytes, err := int64Env("CACHE_MAX_BYTES", defaultCacheMaxBytes)
+	maxBytes, err := int64Env("CACHE_MAX_BYTES", agent.DefaultCacheMaxBytes)
 	if err != nil {
 		return agent.CacheSpec{}, err
 	}
-	ratio, err := floatEnv("CACHE_WARN_RATIO", defaultCacheWarnRatio)
+	ratio, err := floatEnv("CACHE_WARN_RATIO", agent.DefaultCacheWarnRatio)
 	if err != nil {
 		return agent.CacheSpec{}, err
 	}

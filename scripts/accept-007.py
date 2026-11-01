@@ -297,13 +297,12 @@ def case_frozen_limits_wired(results: list[dict], repo: Path) -> None:
 
     这两个值写在 agent 的默认参数里，验收直接读常量定义，避免「文档写了但代码没用」。
     """
-    src = (repo / "cmd" / "edge-agent" / "cache.go").read_text(encoding="utf-8")
-    src += (repo / "internal" / "agent" / "cache.go").read_text(encoding="utf-8")
+    src = (repo / "internal" / "agent" / "cache.go").read_text(encoding="utf-8")
     problems = []
     for label, want in (
-        ("defaultCacheMaxDays", FROZEN_MAX_DAYS),
-        ("defaultCacheMaxItems", FROZEN_MAX_ITEMS),
-        ("defaultCacheMaxBytes", FROZEN_MAX_BYTES),
+        ("DefaultCacheMaxDays", FROZEN_MAX_DAYS),
+        ("DefaultCacheMaxItems", FROZEN_MAX_ITEMS),
+        ("DefaultCacheMaxBytes", FROZEN_MAX_BYTES),
     ):
         # gofmt 会按最长的名字对齐等号，这里按「名字 + 任意空白 + = + 值」匹配。
         if re.search(rf"\b{label}\s*=\s*{want}\b", src) is None:

@@ -9,12 +9,11 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// 缓存的两个 bucket：报文按入队顺序存，元数据存累计值。
-var (
-	bucketItems = []byte("items") // key = seq（大端 int64），value = CacheItem 的 JSON
-	bucketMeta  = []byte("meta")  // key = 累计丢弃数等
-	metaDropped = []byte("dropped")
-)
+// bucketItems 是唯一的 bucket：key = seq（大端 int64），value = CacheItem 的 JSON。
+//
+// 累计丢弃数不落盘——它是「自上次上报起」的批内计数，跨重启从 0 起算是正确语义：
+// 重启后本来就要重新攒一批才上报，把旧计数带过来会让重启后头几条丢弃就触发事件。
+var bucketItems = []byte("items")
 
 // 三上限的冻结值（接口规范 §9.4）。可由环境变量覆盖，默认值写在这里而不是散落在调用点。
 const (
@@ -96,9 +95,6 @@ func (c *Cache) init() error {
 		items, err := tx.CreateBucketIfNotExists(bucketItems)
 		if err != nil {
 			return fmt.Errorf("建队列 bucket: %w", err)
-		}
-		if _, err := tx.CreateBucketIfNotExists(bucketMeta); err != nil {
-			return fmt.Errorf("建元数据 bucket: %w", err)
 		}
 		var total int64
 		if err := items.ForEach(func(_, v []byte) error {
