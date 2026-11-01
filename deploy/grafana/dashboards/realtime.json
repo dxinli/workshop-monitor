@@ -1,0 +1,918 @@
+{
+  "uid": "workshop-realtime",
+  "title": "实时监视",
+  "description": "按测点显示当前值与质量。",
+  "tags": [
+    "车间监测",
+    "读视图"
+  ],
+  "timezone": "Asia/Shanghai",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "1h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "workshop",
+        "label": "车间",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT workshop AS __text, workshop AS __value FROM v_point_dict ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "esn",
+        "label": "终端",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT terminal_id AS __text, terminal_id AS __value FROM v_point_dict WHERE workshop IN (${workshop:sqlstring}) ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "point",
+        "label": "测点",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT point_name || '（' || point_id || '）' AS __text, point_id AS __value FROM v_point_dict WHERE terminal_id IN (${esn:sqlstring}) ORDER BY 2",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "电机绕组温度（A.1.motor_temp）"
+          ],
+          "value": [
+            "A.1.motor_temp"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "车间总览",
+      "url": "/d/workshop-overview",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "开关量状态",
+      "url": "/d/workshop-switch",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "历史曲线",
+      "url": "/d/workshop-history",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "能耗分析",
+      "url": "/d/workshop-energy",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "告警中心",
+      "url": "/d/workshop-alarms",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "原始报文",
+      "url": "/d/workshop-raw",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "配置查看",
+      "url": "/d/workshop-config",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    }
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "实时值",
+      "description": "只显示采集时间最新的值。质量非正常时数值为空，不沿用上一次读数。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT terminal_id AS \"终端\", workshop AS \"车间\", device_name AS \"设备\",\n                         point_name AS \"测点\", point_id AS \"测点编码\",\n                         value AS \"数值\", unit AS \"单位\",\n                         collect_time AS \"采集时间\", seq AS \"序号\",\n                         CASE quality WHEN 0 THEN '正常' WHEN 1 THEN '设备异常' WHEN 2 THEN '通信超时'\n            WHEN 3 THEN '校验错误' WHEN 4 THEN '解析错误' WHEN 5 THEN '超量程'\n            WHEN 6 THEN '数据陈旧' WHEN 7 THEN '仿真数据' WHEN 8 THEN '人工注入'\n            ELSE '未知(' || quality || ')' END AS \"质量\",\n                         CASE WHEN is_stale THEN '超时未更新' ELSE '正常刷新' END AS \"刷新\"\n                  FROM v_realtime\n                  WHERE workshop IN (${workshop:sqlstring}) AND terminal_id IN (${esn:sqlstring}) AND point_id IN (${point:sqlstring})\n                  ORDER BY terminal_id, device_name, point_name"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "采集时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后数据时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后在线时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "发生时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近发生"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "恢复时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "接收时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collectTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sendTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "质量"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "正常": {
+                        "text": "正常",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "设备异常": {
+                        "text": "设备异常",
+                        "color": "red",
+                        "index": 1
+                      },
+                      "通信超时": {
+                        "text": "通信超时",
+                        "color": "red",
+                        "index": 2
+                      },
+                      "校验错误": {
+                        "text": "校验错误",
+                        "color": "red",
+                        "index": 3
+                      },
+                      "解析错误": {
+                        "text": "解析错误",
+                        "color": "red",
+                        "index": 4
+                      },
+                      "超量程": {
+                        "text": "超量程",
+                        "color": "orange",
+                        "index": 5
+                      },
+                      "数据陈旧": {
+                        "text": "数据陈旧",
+                        "color": "orange",
+                        "index": 6
+                      },
+                      "仿真数据": {
+                        "text": "仿真数据",
+                        "color": "purple",
+                        "index": 7
+                      },
+                      "人工注入": {
+                        "text": "人工注入",
+                        "color": "purple",
+                        "index": 8
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "刷新"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "超时未更新": {
+                        "text": "超时未更新",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "正常刷新": {
+                        "text": "正常刷新",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "数值"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "无数据",
+                        "index": 0,
+                        "color": "gray"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "超时未更新测点",
+      "description": "距最近一次采集超过 30 秒的测点数。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_realtime WHERE is_stale AND workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "质量异常测点",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_realtime WHERE quality <> 0 AND workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "在采测点总数",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_realtime WHERE workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "最近一次正常值",
+      "description": "当前值异常时用于追溯最近一次可信读数。数值、采集时间、质量三项同屏，缺一不可。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT DISTINCT ON (m.terminal_id, m.point_id)\n                         m.terminal_id AS \"终端\", d.point_name AS \"测点\", m.point_id AS \"测点编码\",\n                         d.unit AS \"单位\", m.value AS \"最近一次正常值\",\n                         m.collect_time AS \"采集时间\", CASE m.quality WHEN 0 THEN '正常' WHEN 1 THEN '设备异常' WHEN 2 THEN '通信超时'\n            WHEN 3 THEN '校验错误' WHEN 4 THEN '解析错误' WHEN 5 THEN '超量程'\n            WHEN 6 THEN '数据陈旧' WHEN 7 THEN '仿真数据' WHEN 8 THEN '人工注入'\n            ELSE '未知(' || m.quality || ')' END AS \"质量\"\n                  FROM measurement m JOIN v_point_dict d\n                    ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n                  WHERE $__timeFilter(m.collect_time) AND m.quality = 0\n                    AND d.workshop IN (${workshop:sqlstring}) AND m.terminal_id IN (${esn:sqlstring}) AND m.point_id IN (${point:sqlstring})\n                  ORDER BY m.terminal_id, m.point_id, m.collect_time DESC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "采集时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后数据时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后在线时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "发生时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近发生"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "恢复时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "接收时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collectTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sendTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "质量"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "正常": {
+                        "text": "正常",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "设备异常": {
+                        "text": "设备异常",
+                        "color": "red",
+                        "index": 1
+                      },
+                      "通信超时": {
+                        "text": "通信超时",
+                        "color": "red",
+                        "index": 2
+                      },
+                      "校验错误": {
+                        "text": "校验错误",
+                        "color": "red",
+                        "index": 3
+                      },
+                      "解析错误": {
+                        "text": "解析错误",
+                        "color": "red",
+                        "index": 4
+                      },
+                      "超量程": {
+                        "text": "超量程",
+                        "color": "orange",
+                        "index": 5
+                      },
+                      "数据陈旧": {
+                        "text": "数据陈旧",
+                        "color": "orange",
+                        "index": 6
+                      },
+                      "仿真数据": {
+                        "text": "仿真数据",
+                        "color": "purple",
+                        "index": 7
+                      },
+                      "人工注入": {
+                        "text": "人工注入",
+                        "color": "purple",
+                        "index": 8
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近一次正常值"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "无数据",
+                        "index": 0,
+                        "color": "gray"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,324 @@
+{
+  "uid": "workshop-config",
+  "title": "配置查看",
+  "description": "点表与阈值的只读视图。",
+  "tags": [
+    "车间监测",
+    "读视图"
+  ],
+  "timezone": "Asia/Shanghai",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "1h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "workshop",
+        "label": "车间",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT workshop AS __text, workshop AS __value FROM v_point_dict ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "esn",
+        "label": "终端",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT terminal_id AS __text, terminal_id AS __value FROM v_point_dict WHERE workshop IN (${workshop:sqlstring}) ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "车间总览",
+      "url": "/d/workshop-overview",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "实时监视",
+      "url": "/d/workshop-realtime",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "开关量状态",
+      "url": "/d/workshop-switch",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "历史曲线",
+      "url": "/d/workshop-history",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "能耗分析",
+      "url": "/d/workshop-energy",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "告警中心",
+      "url": "/d/workshop-alarms",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "原始报文",
+      "url": "/d/workshop-raw",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    }
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "点表",
+      "description": "与 config/terminals/*.json 一致。不一致时以文件为准并执行 make seed 重建投影。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT terminal_id AS \"终端\", workshop AS \"车间\", line AS \"产线\",\n                        device_name AS \"设备\", device_type AS \"设备类型\",\n                        bus_id AS \"总线\", slave_addr AS \"从站地址\",\n                        point_code AS \"测点编码\", point_name AS \"测点名称\",\n                        CASE si_type WHEN 'YC' THEN '模拟量' ELSE '开关量' END AS \"类型\",\n                        unit AS \"单位\", min_value AS \"量程下限\", max_value AS \"量程上限\"\n                 FROM v_point_dict\n                 WHERE workshop IN (${workshop:sqlstring}) AND terminal_id IN (${esn:sqlstring})\n                 ORDER BY terminal_id, bus_id, slave_addr, point_code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "告警阈值",
+      "description": "与 config/thresholds.json 一致。阈值改后 60 秒内生效；点表改动需重启终端容器。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT threshold_id AS \"编号\", CASE alarm_type WHEN 'HIGH_LIMIT' THEN '高限' WHEN 'HIGH_HIGH_LIMIT' THEN '高高限'\n            WHEN 'LOW_LIMIT' THEN '低限' WHEN 'STATE_ALARM' THEN '状态报警'\n            WHEN 'SENSOR_OFFLINE' THEN '传感器离线' WHEN 'TERMINAL_OFFLINE' THEN '终端离线'\n            WHEN 'CACHE_WARNING' THEN '缓存预警' WHEN 'DATA_QUALITY_ERROR' THEN '数据质量异常'\n            ELSE alarm_type END AS \"告警类型\", CASE level WHEN 1 THEN '提示' WHEN 2 THEN '警告' WHEN 3 THEN '严重' WHEN 4 THEN '紧急'\n           ELSE level::text END AS \"级别\",\n                         CASE scope WHEN 'POINT' THEN '测点' WHEN 'BUS' THEN '总线' ELSE '全局' END AS \"作用范围\", terminal_id AS \"终端\", bus_id AS \"总线\",\n                         point_code AS \"测点编码\", operator AS \"判据\", threshold_value AS \"阈值\",\n                         debounce_count AS \"去抖次数\",\n                         CASE WHEN enabled THEN '启用' ELSE '停用' END AS \"启用\",\n                         config_version AS \"配置版本\"\n                  FROM threshold\n                  WHERE terminal_id IS NULL OR terminal_id IN (${esn:sqlstring})\n                  ORDER BY threshold_id"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "级别"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "提示": {
+                        "text": "提示",
+                        "color": "blue",
+                        "index": 0
+                      },
+                      "警告": {
+                        "text": "警告",
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "严重": {
+                        "text": "严重",
+                        "color": "orange",
+                        "index": 2
+                      },
+                      "紧急": {
+                        "text": "紧急",
+                        "color": "red",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "text",
+      "title": "配置生效边界",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "mode": "markdown",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "- 阈值数值与级别：启动载入，改后 60 秒内生效，无需重启\n- 点表地址、数量、字节序：需重启对应终端容器\n- 主题命名方案：需重启 agent 与 adapter\n\n配置文件是唯一权威源，库为界面读取的投影。两者不一致时以文件为准。"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=0 loops=1)
+   ->  Sort (actual rows=0 loops=1)
+         Sort Key: measurement.collect_time
+         Sort Method: quicksort  Memory: 25kB
+         ->  Append (actual rows=0 loops=1)
+               ->  Result (actual rows=0 loops=1)
+                     One-Time Filter: ($0 <= '86400'::numeric)
+                     InitPlan 1 (returns $0)
+                       ->  Result (actual rows=1 loops=1)
+                     ->  Custom Scan (ChunkAppend) on measurement (never executed)
+                           ->  Result (never executed)
+                                 One-Time Filter: ($0 <= '86400'::numeric)
+                                 ->  Seq Scan on _hyper_1_3_chunk (never executed)
+                                       Filter: ((collect_time >= '2026-10-01 11:55:05+00'::timestamp with time zone) AND (collect_time <= '2026-10-31 11:55:05+00'::timestamp with time zone) AND (terminal_id = 'ESN-ZX-0001'::text) AND (point_id = 'A.1.motor_temp'::text))
+                           ->  Result (never executed)
+                                 One-Time Filter: ($0 <= '86400'::numeric)
+                                 ->  Seq Scan on _hyper_1_5_chunk (never executed)
+                                       Filter: ((collect_time >= '2026-10-01 11:55:05+00'::timestamp with time zone) AND (collect_time <= '2026-10-31 11:55:05+00'::timestamp with time zone) AND (terminal_id = 'ESN-ZX-0001'::text) AND (point_id = 'A.1.motor_temp'::text))
+               ->  HashAggregate (actual rows=0 loops=1)
+                     Group Key: time_bucket('01:00:00'::interval, _materialized_hypertable_2.bucket)
+                     Batches: 1  Memory Usage: 24kB
+                     InitPlan 2 (returns $1)
+                       ->  Result (actual rows=1 loops=1)
+                     ->  Result (actual rows=0 loops=1)
+                           ->  Result (actual rows=0 loops=1)
+                                 One-Time Filter: ($1 > '86400'::numeric)
+                                 ->  Custom Scan (ChunkAppend) on _materialized_hypertable_2 (actual rows=0 loops=1)
+                                       Hypertables excluded during runtime: 0
+                                       ->  Result (actual rows=0 loops=1)
+                                             One-Time Filter: ($1 > '86400'::numeric)
+                                             ->  Seq Scan on _hyper_2_6_chunk (actual rows=0 loops=1)
+                                                   Filter: ((bucket >= '2026-10-01 11:55:05+00'::timestamp with time zone) AND (bucket <= '2026-10-31 11:55:05+00'::timestamp with time zone) AND (terminal_id = 'ESN-ZX-0001'::text) AND (point_id = 'A.1.motor_temp'::text))
+ Planning Time: 9.842 ms
+ Execution Time: 0.329 ms
+(34 rows)
+

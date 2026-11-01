@@ -1,0 +1,862 @@
+{
+  "uid": "workshop-overview",
+  "title": "车间总览",
+  "description": "终端在线、告警与能耗的当前快照。",
+  "tags": [
+    "车间监测",
+    "读视图"
+  ],
+  "timezone": "Asia/Shanghai",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "1h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "workshop",
+        "label": "车间",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT workshop AS __text, workshop AS __value FROM v_point_dict ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "实时监视",
+      "url": "/d/workshop-realtime",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "开关量状态",
+      "url": "/d/workshop-switch",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "历史曲线",
+      "url": "/d/workshop-history",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "能耗分析",
+      "url": "/d/workshop-energy",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "告警中心",
+      "url": "/d/workshop-alarms",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "原始报文",
+      "url": "/d/workshop-raw",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "配置查看",
+      "url": "/d/workshop-config",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    }
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "终端在线率",
+      "description": "在线终端数 ÷ 终端总数。在线按断连通知、状态消息、数据超时三源合成。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(100.0 * count(*) FILTER (WHERE status = 'ONLINE') / NULLIF(count(*), 0), 1) AS value FROM v_terminal_overview WHERE workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "在线终端数",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_terminal_overview WHERE status = 'ONLINE' AND workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "当前活动告警",
+      "description": "已发生且尚未恢复的告警条数，不受时间范围限制。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM alarm a JOIN terminal t ON t.terminal_id = a.terminal_id\n                 WHERE a.status = 'ACTIVE' AND t.workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "设备健康度",
+      "description": "时间范围内正常质量（质量码 0）读数占比，走分钟聚合。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(100.0 * sum(good_count) / NULLIF(sum(total_count), 0), 1) AS value\n                 FROM measurement_1m WHERE $__timeFilter(bucket) AND si_type = 'YC'"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "窗口电能消耗",
+      "description": "正向有功电能：每个测点取窗口末值减首值，再汇总。累计量不能求和。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(sum(v)::numeric, 2) AS value FROM (SELECT * FROM (\nSELECT s.workshop AS metric, sum(s.delta) AS v\n                    FROM (SELECT m.terminal_id, m.point_id, d.workshop,\n                                 max(m.value) - min(m.value) AS delta\n                          FROM measurement m JOIN v_point_dict d\n                            ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n                          WHERE $__timeFilter(m.collect_time) AND d.point_code = 'ep_forward'\n                            AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\n                          GROUP BY 1, 2, 3) s\n                    GROUP BY 1\nUNION ALL\nSELECT s.workshop AS metric, sum(s.delta) AS v\n                 FROM (SELECT x.terminal_id, x.point_id, d.workshop,\n                              max(x.max_value) - min(x.min_value) AS delta\n                       FROM measurement_1m x JOIN v_point_dict d\n                         ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n                       WHERE $__timeFilter(x.bucket) AND d.point_code = 'ep_forward'\n                         AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400\n                       GROUP BY 1, 2, 3) s\n                 GROUP BY 1\n) s) t"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "窗口平均有功功率",
+      "description": "有功功率为瞬时量，窗口内取均值后可汇总。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT round(sum(v)::numeric, 2) AS value FROM (SELECT * FROM (\nSELECT avg(m.value) AS v\n                   FROM measurement m JOIN v_point_dict d\n                     ON d.terminal_id = m.terminal_id AND d.point_id = m.point_id\n                   WHERE $__timeFilter(m.collect_time) AND d.point_code = 'p_total'\n                     AND m.quality = 0 AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) <= 86400\nUNION ALL\nSELECT avg(x.avg_value) AS v\n                FROM measurement_1m x JOIN v_point_dict d\n                  ON d.terminal_id = x.terminal_id AND d.point_id = x.point_id\n                WHERE $__timeFilter(x.bucket) AND d.point_code = 'p_total'\n                  AND d.workshop IN (${workshop:sqlstring}) AND (SELECT EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz))) > 86400\n) s) t"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatt",
+          "decimals": 2,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "终端一览",
+      "description": "状态为三源合成结论；最后数据时间为最近一次非补传上报的采集时间。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT terminal_id AS \"终端\", workshop AS \"车间\", line AS \"产线\",\n                         CASE status WHEN 'ONLINE' THEN '在线' WHEN 'OFFLINE' THEN '离线' ELSE '未知' END AS \"状态\",\n                         last_data_time AS \"最后数据时间\", last_seen_time AS \"最后在线时间\",\n                         active_alarm_count AS \"活动告警数\",\n                         CASE WHEN enabled THEN '启用' ELSE '停用' END AS \"启用\"\n                  FROM v_terminal_overview\n                  WHERE workshop IN (${workshop:sqlstring})\n                  ORDER BY workshop, terminal_id"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "采集时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后数据时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后在线时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "发生时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近发生"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "恢复时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "接收时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collectTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sendTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "状态"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "在线": {
+                        "text": "在线",
+                        "color": "green",
+                        "index": 0
+                      },
+                      "离线": {
+                        "text": "离线",
+                        "color": "red",
+                        "index": 1
+                      },
+                      "未知": {
+                        "text": "未知",
+                        "color": "gray",
+                        "index": 2
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "活动告警数"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "各车间活动告警",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT t.workshop AS \"车间\", count(a.alarm_id) AS \"活动告警\"\n                 FROM terminal t\n                 LEFT JOIN alarm a ON a.terminal_id = t.terminal_id AND a.status = 'ACTIVE'\n                 WHERE t.workshop IN (${workshop:sqlstring})\n                 GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "活动告警"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+验收：http://localhost:3000
+  ok   Grafana 健康检查通过
+  ok   匿名访客可列出 8 个面板
+  ok   8 个面板全部可读
+  ok   写接口 /api/dashboards/db 被拒（403）
+  ok   写接口 /api/datasources 被拒（403）
+  ok   写接口 /api/admin/users 被拒（403）
+  ok   删除面板被拒（403）
+  ok   默认管理员账号不可用（401）
+  ok   数据源以 workshop_readonly 连接
+  ok   8 个面板均为 5 秒刷新、Asia/Shanghai、1h/24h/7d/30d
+  ok   8 个面板共 132 条查询在 1h/24h/7d/30d 下全部可执行
+  ok   30 天曲线未扫描明细表（One-Time Filter 剪枝）
+  ok   30 天曲线走了分钟聚合
+  ok   「最近一次正常值」同屏包含数值、采集时间、质量
+
+  ok   面板无配电术语
+  ok   能耗口径正确：功率取均值、电能取末值差
+验收通过

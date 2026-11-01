@@ -1,0 +1,59 @@
+{
+  "task": "013 读视图面板",
+  "generatedAt": "2026-10-31T19:48:19+0800",
+  "grafana": "11.3.0",
+  "passed": true,
+  "verifyScript": "scripts/verify-read-view.sh",
+  "cases": [
+    {
+      "name": "8 类界面覆盖 FR-V1~FR-V9",
+      "passed": true,
+      "detail": "车间总览（FR-V1）、实时监视（FR-V2）、开关量状态（FR-V3）、历史曲线与数据导出（FR-V4/FR-V8）、能耗分析（FR-V5）、告警中心（FR-V6）、原始报文（FR-V7）、配置查看（FR-V9）；匿名访客 /api/search 列出 8 个面板"
+    },
+    {
+      "name": "30 天曲线走 measurement_1m，不查明细表",
+      "passed": true,
+      "detail": "面板 SQL 以 >24h 的 One-Time Filter 剪掉明细分支；EXPLAIN ANALYZE 显示 measurement 各 chunk 全部 never executed，只扫描 _materialized_hypertable。见 plan-30d.txt"
+    },
+    {
+      "name": "视图内无内嵌时间过滤，时间由面板变量传入",
+      "passed": true,
+      "detail": "全部查询用 $__timeFilter / $__timeTo / $__timeFrom；JSON 中无字面量时间戳，无 now() 过滤。库视图也未内嵌时间条件"
+    },
+    {
+      "name": "刷新 5 秒，时区 Asia/Shanghai",
+      "passed": true,
+      "detail": "8 个面板 refresh=5s、timezone=Asia/Shanghai；Grafana 侧 GF_DASHBOARDS_MIN_REFRESH_INTERVAL=5s、GF_DATE_FORMATS_DEFAULT_TIMEZONE=Asia/Shanghai"
+    },
+    {
+      "name": "时间范围变量 1h / 24h / 7d / 30d 可用",
+      "passed": true,
+      "detail": "8 个面板 timepicker.time_options 均为 [1h,24h,7d,30d]；132 条查询在四个范围下全部执行成功"
+    },
+    {
+      "name": "「最近一次正常值」同屏显示采集时间与质量",
+      "passed": true,
+      "detail": "实时监视页「最近一次正常值」面板输出 终端/测点/单位/最近一次正常值/采集时间/质量 六列，时间列格式为 YYYY-MM-DD HH:mm:ss.SSS"
+    },
+    {
+      "name": "面板 JSON 全部导出提交，provisioning 纳管数据源",
+      "passed": true,
+      "detail": "deploy/grafana/dashboards/*.json 8 份、provisioning/datasources/postgres.yaml、provisioning/dashboards/workshop.yaml；provider allowUiUpdates=false，界面修改不生效"
+    },
+    {
+      "name": "只读账号连接，无任何写权限",
+      "passed": true,
+      "detail": "数据源 user=workshop_readonly；匿名访客为 Viewer，建面板/改数据源/建用户/删面板均 403，默认管理员 admin 登录 401；库侧 workshop_readonly 对业务表 INSERT/DELETE 被拒"
+    },
+    {
+      "name": "界面用语为中文工业用语，不出现配电术语",
+      "passed": true,
+      "detail": "面板标题、列名、统计卡片、说明文字全部中文；遥测/遥信/遥调/遥控/配电/母线/断路器/馈线/SCADA 命中数为 0"
+    },
+    {
+      "name": "能耗口径：功率取均值、电能取末值差",
+      "passed": true,
+      "detail": "功率 avg(value)/avg(avg_value) 后按车间汇总；电能按测点 max-min 求差再按车间求和；无 sum(value) 形式的功率累加"
+    }
+  ]
+}

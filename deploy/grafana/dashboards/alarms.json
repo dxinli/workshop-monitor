@@ -1,0 +1,917 @@
+{
+  "uid": "workshop-alarms",
+  "title": "告警中心",
+  "description": "活动告警与历史告警查询。",
+  "tags": [
+    "车间监测",
+    "读视图"
+  ],
+  "timezone": "Asia/Shanghai",
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "1h",
+      "24h",
+      "7d",
+      "30d"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "workshop",
+        "label": "车间",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "workshop-pg"
+        },
+        "query": "SELECT DISTINCT workshop AS __text, workshop AS __value FROM v_point_dict ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "车间总览",
+      "url": "/d/workshop-overview",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "实时监视",
+      "url": "/d/workshop-realtime",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "开关量状态",
+      "url": "/d/workshop-switch",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "历史曲线",
+      "url": "/d/workshop-history",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "能耗分析",
+      "url": "/d/workshop-energy",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "原始报文",
+      "url": "/d/workshop-raw",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    },
+    {
+      "title": "配置查看",
+      "url": "/d/workshop-config",
+      "type": "link",
+      "icon": "external link",
+      "tags": [],
+      "asDropdown": false,
+      "targetBlank": false
+    }
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "活动告警",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_alarm_active a\n              JOIN terminal t ON t.terminal_id = a.terminal_id WHERE t.workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "未确认",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_alarm_active a\n              JOIN terminal t ON t.terminal_id = a.terminal_id WHERE a.need_ack AND t.workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "紧急与严重",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_alarm_active a\n              JOIN terminal t ON t.terminal_id = a.terminal_id WHERE a.level >= 3 AND t.workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": null
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "已恢复待确认",
+      "description": "",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT count(*) AS value FROM v_alarm_active a\n              JOIN terminal t ON t.terminal_id = a.terminal_id WHERE a.status = 'RECOVERED' AND t.workshop IN (${workshop:sqlstring})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "showPercentChange": false,
+        "wideLayout": true
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "活动告警",
+      "description": "已发生且尚未恢复，按级别与发生时间倒序。活动告警不受时间范围限制。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT a.terminal_id AS \"终端\", t.workshop AS \"车间\", a.device_name AS \"设备\",\n                        a.point_name AS \"测点\", CASE a.alarm_type WHEN 'HIGH_LIMIT' THEN '高限' WHEN 'HIGH_HIGH_LIMIT' THEN '高高限'\n            WHEN 'LOW_LIMIT' THEN '低限' WHEN 'STATE_ALARM' THEN '状态报警'\n            WHEN 'SENSOR_OFFLINE' THEN '传感器离线' WHEN 'TERMINAL_OFFLINE' THEN '终端离线'\n            WHEN 'CACHE_WARNING' THEN '缓存预警' WHEN 'DATA_QUALITY_ERROR' THEN '数据质量异常'\n            ELSE a.alarm_type END AS \"告警类型\", CASE a.level WHEN 1 THEN '提示' WHEN 2 THEN '警告' WHEN 3 THEN '严重' WHEN 4 THEN '紧急'\n           ELSE a.level::text END AS \"级别\",\n                        a.occur_time AS \"发生时间\", a.last_time AS \"最近发生\",\n                        a.trigger_value AS \"触发值\", a.point_unit AS \"单位\", a.trigger_count AS \"次数\",\n                        a.message AS \"告警说明\",\n                        CASE WHEN a.acked_time IS NULL THEN '未确认' ELSE '已确认' END AS \"确认\",\n                        a.acked_by AS \"确认人\", a.acked_time AS \"确认时间\"\n                 FROM v_alarm_active a JOIN terminal t ON t.terminal_id = a.terminal_id\n                 WHERE t.workshop IN (${workshop:sqlstring})\n                 ORDER BY a.level DESC, a.occur_time DESC\n                 LIMIT 200"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "采集时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后数据时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后在线时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "发生时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近发生"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "恢复时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "接收时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collectTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sendTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "级别"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "提示": {
+                        "text": "提示",
+                        "color": "blue",
+                        "index": 0
+                      },
+                      "警告": {
+                        "text": "警告",
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "严重": {
+                        "text": "严重",
+                        "color": "orange",
+                        "index": 2
+                      },
+                      "紧急": {
+                        "text": "紧急",
+                        "color": "red",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "未确认": {
+                        "text": "未确认",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "已确认": {
+                        "text": "已确认",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "历史告警",
+      "description": "按发生时间倒序，时间范围由面板顶部传入。",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "workshop-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "editorMode": "code",
+          "rawSql": "SELECT a.terminal_id AS \"终端\", t.workshop AS \"车间\", d.device_name AS \"设备\",\n                         d.point_name AS \"测点\", CASE a.alarm_type WHEN 'HIGH_LIMIT' THEN '高限' WHEN 'HIGH_HIGH_LIMIT' THEN '高高限'\n            WHEN 'LOW_LIMIT' THEN '低限' WHEN 'STATE_ALARM' THEN '状态报警'\n            WHEN 'SENSOR_OFFLINE' THEN '传感器离线' WHEN 'TERMINAL_OFFLINE' THEN '终端离线'\n            WHEN 'CACHE_WARNING' THEN '缓存预警' WHEN 'DATA_QUALITY_ERROR' THEN '数据质量异常'\n            ELSE a.alarm_type END AS \"告警类型\", CASE a.level WHEN 1 THEN '提示' WHEN 2 THEN '警告' WHEN 3 THEN '严重' WHEN 4 THEN '紧急'\n           ELSE a.level::text END AS \"级别\",\n                         a.occur_time AS \"发生时间\", a.recover_time AS \"恢复时间\",\n                         a.trigger_value AS \"触发值\", d.unit AS \"单位\",\n                         CASE a.status WHEN 'ACTIVE' THEN '活动' WHEN 'RECOVERED' THEN '已恢复'\n                              WHEN 'ACKED' THEN '已确认' WHEN 'CLOSED' THEN '已归档'\n                              ELSE a.status END AS \"状态\",\n                         a.message AS \"告警说明\"\n                  FROM v_alarm_history a\n                  JOIN terminal t ON t.terminal_id = a.terminal_id\n                  LEFT JOIN v_point_dict d\n                    ON d.terminal_id = a.terminal_id AND d.point_id = a.point_id\n                  WHERE $__timeFilter(a.occur_time) AND t.workshop IN (${workshop:sqlstring})\n                  ORDER BY a.occur_time DESC\n                  LIMIT 2000"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false,
+            "filterable": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "采集时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后数据时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最后在线时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "发生时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "最近发生"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "确认时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "恢复时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "接收时间"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collectTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sendTime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTime:YYYY-MM-DD HH:mm:ss.SSS"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "级别"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "提示": {
+                        "text": "提示",
+                        "color": "blue",
+                        "index": 0
+                      },
+                      "警告": {
+                        "text": "警告",
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "严重": {
+                        "text": "严重",
+                        "color": "orange",
+                        "index": 2
+                      },
+                      "紧急": {
+                        "text": "紧急",
+                        "color": "red",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "状态"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "活动": {
+                        "text": "活动",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "已恢复": {
+                        "text": "已恢复",
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "已确认": {
+                        "text": "已确认",
+                        "color": "green",
+                        "index": 2
+                      },
+                      "已归档": {
+                        "text": "已归档",
+                        "color": "gray",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "text",
+      "title": "确认入口",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "workshop-pg"
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "options": {
+        "mode": "markdown",
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "告警确认属写操作，只在写视图（操作台）执行，本读视图无任何写权限。"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

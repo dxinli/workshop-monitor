@@ -1,0 +1,13 @@
+# 面板由文件纳管：界面里改完不生效，改 JSON 后重启或等 updateIntervalSeconds 重载。
+apiVersion: 1
+providers:
+  - name: 车间监测读视图
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
