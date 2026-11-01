@@ -84,6 +84,9 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_USERS_DEFAULT_LANGUAGE: zh-Hans
       GF_DATE_FORMATS_DEFAULT_TIMEZONE: Asia/Shanghai
+      # 时间列统一到毫秒。面板里不写 unit 覆盖：Grafana 11.3 的 getValueFormat
+      # 只认 prefix/suffix/time/si/count/currency/bool 七种前缀，dateTime: 不生效。
+      GF_DATE_FORMATS_FULL_DATE: "YYYY-MM-DD HH:mm:ss.SSS"
       # 刷新粒度与规则文件一致：5 秒。
       GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 5s
       GF_ANALYTICS_REPORTING_ENABLED: "false"
