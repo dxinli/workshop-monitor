@@ -1,0 +1,43 @@
+{
+  "task": "015 健康检查与自检",
+  "generatedAt": "2026-11-01T11:01:06+0800",
+  "terminal": "ESN-ZX-0001",
+  "passed": true,
+  "cases": [
+    {
+      "name": "edge-agent 全项正常返回 200 / ok，四项齐全",
+      "passed": true,
+      "detail": "HTTP 200 status=ok checks=['cache', 'config', 'mqtt', 'serial'] mqtt={'status': 'ok', 'connected': True, 'lastSuccess': 1793501944857}"
+    },
+    {
+      "name": "MQTT 断开但采集正常：200 降级，不是 503",
+      "passed": true,
+      "detail": "HTTP 200 status=degraded mqtt={'status': 'degraded', 'connected': False, 'lastSuccess': 1793501945177} 断网期间采集 6 个周期 cache.depth=6"
+    },
+    {
+      "name": "串口整条总线读不回时返回 503",
+      "passed": true,
+      "detail": "HTTP 503 status=down serial={'status': 'down', 'buses': {'A': 'closed', 'B': 'open'}} A 总线全失败周期 5 个，判定耗时 81s（B 总线应仍为 open）"
+    },
+    {
+      "name": "proto-adapter 全项正常返回 200 / ok，evaluate 字段齐全",
+      "passed": true,
+      "detail": "HTTP 200 status=ok evaluate={'status': 'ok', 'queueDepth': 0, 'queueCapacity': 4096, 'dropCount': 0, 'activeAlarmCount': 13, 'debounceKeys': 0, 'activeAlarmCountInDB': 13}"
+    },
+    {
+      "name": "活动告警数与库不一致：200 降级并给出原因",
+      "passed": true,
+      "detail": "HTTP 200 status=degraded evaluate={'status': 'degraded', 'queueDepth': 0, 'queueCapacity': 4096, 'dropCount': 0, 'activeAlarmCount': 13, 'debounceKeys': 0, 'activeAlarmCountInDB': 12, 'reason': '活动告警数不一致：内存 13，库 12'}"
+    },
+    {
+      "name": "make preflight 12 项全过",
+      "passed": true,
+      "detail": "退出码 0，编号项 12 条；末尾：['自检通过']"
+    },
+    {
+      "name": "停掉 grafana 后 preflight 失败并指出具体项",
+      "passed": true,
+      "detail": "退出码 2，失败项：['FAIL 9  grafana 在跑', 'FAIL 12 grafana 健康接口']"
+    }
+  ]
+}

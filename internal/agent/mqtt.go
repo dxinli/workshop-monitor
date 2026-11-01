@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -47,6 +48,8 @@ type MQTTLink struct {
 	mu     sync.RWMutex
 	client mqtt.Client
 	lost   chan struct{}
+	// lastConnected 是最近一次建连成功的时刻（毫秒），供健康检查展示。
+	lastConnected atomic.Int64
 }
 
 // NewMQTTLink 组装连接。onConnected 在每次（重）连成功后调用，用来发布 ONLINE。
@@ -198,7 +201,11 @@ func (l *MQTTLink) setClient(client mqtt.Client) {
 	defer l.mu.Unlock()
 	l.client = client
 	l.lost = make(chan struct{})
+	l.lastConnected.Store(time.Now().UnixMilli())
 }
+
+// LastConnected 返回最近一次建连成功的时刻（毫秒），尚未成功过时为 0。
+func (l *MQTTLink) LastConnected() int64 { return l.lastConnected.Load() }
 
 func (l *MQTTLink) clearClient() {
 	l.mu.Lock()

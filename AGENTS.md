@@ -34,7 +34,7 @@ make seed            # 导入 deploy/timescaledb/init/02_seed.sql
 make seed-sql        # 从 config/ 重新生成 02_seed.sql（改配置后跑）
 make verify-config   # 配置校验 V-01~V-11，逐条造坏配置验证报错内容
 make verify-read-view # 013 验收：8 个面板可读、只读、30 天走聚合
-make preflight       # 部署后 12 项自检
+make preflight       # 部署后 12 项自检（HEALTH_URLS 可附加两个自研服务的 /healthz）
 make sim-pty         # 建 10 对虚拟串口，端点表写到 .pty/
 make sim-test        # 仿真件单元测试（需 .venv-sim）
 make sim-up          # 起 Modbus 从站模拟器

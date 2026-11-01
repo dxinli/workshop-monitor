@@ -153,6 +153,26 @@ Grafana 不得授予写权限。写操作只从 Dashboard 一个出口出。
 
 界面里改完不导出，现场重装就丢；建表脚本不幂等，重复执行失败会让现场卡在部署第 5 步。
 
+## 部署后自检
+
+`make preflight` 固定 12 项，按「部署完能不能用」排：工具与环境 → 四个容器 →
+配置域投影 → 时序结构 → Grafana。任一项失败输出原因并退出非 0。
+
+| # | 项 | 失败含义 |
+|---:|---|---|
+| 1~4 | docker compose / versions.env / compose 文件 / .env | 部署前置缺失 |
+| 5 | config/terminals | 点表没挂进来 |
+| 6~9 | timescaledb / mosquitto / node-red / grafana 在跑 | 容器没起来 |
+| 10 | 配置域投影 `5/50/140/95` | `make seed` 没跑或跑在旧配置上 |
+| 11 | 超表 + 分钟聚合 + 明细 7 天 + 聚合 30 天 | 建表脚本没跑完整 |
+| 12 | Grafana `/api/health` 报库 ok | 读视图连不上库 |
+
+两个自研服务的 `/healthz` 不在 compose 里（终端与平台分别部署），
+需要时用 `HEALTH_URLS=http://127.0.0.1:9101/healthz,...` 追加，不计入 12 项。
+
+**判断容器是否在跑不能用 `docker compose ps --status running` 的退出码**：容器停了它只打印
+表头，退出码仍是 0。按输出行数判。
+
 ## 自检
 
 - [ ] 镜像标签全部来自 `deploy/versions.env`，无 `latest`

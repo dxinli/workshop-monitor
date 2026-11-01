@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"workshop-monitor/internal/agent"
 	"workshop-monitor/internal/config"
@@ -66,16 +67,19 @@ type options struct {
 
 // agentRuntime 是装配好的运行期依赖，只在 run 内使用。
 type agentRuntime struct {
-	term      *config.Terminal
-	log       *pkglog.Logger
-	settings  uplinkSettings
-	buses     []io.ReadWriter
-	alloc     *agent.SeqAllocator
-	link      *agent.MQTTLink
-	uplink    *agent.Uplink
-	cache     *agent.Cache
-	cacheSpec cacheSettings
-	backfill  *agent.Backfill
+	term       *config.Terminal
+	log        *pkglog.Logger
+	settings   uplinkSettings
+	buses      []io.ReadWriter
+	alloc      *agent.SeqAllocator
+	link       *agent.MQTTLink
+	uplink     *agent.Uplink
+	cache      *agent.Cache
+	cacheSpec  cacheSettings
+	backfill   *agent.Backfill
+	health     *agent.HealthServer
+	healthAddr string
+	pollers    []*agent.BusPoller
 }
 
 // run 按 rules/edge-agent.md 的启动顺序装配：
@@ -105,6 +109,7 @@ func run(opts options, level pkglog.Level) error {
 
 	var wg sync.WaitGroup
 	rt.startWorkers(ctx, &wg)
+	rt.startHealth(ctx, &wg)
 
 	<-ctx.Done()
 	wg.Wait()
@@ -147,6 +152,7 @@ func setup(opts options, level pkglog.Level) (*agentRuntime, func(), error) {
 		closeAll()
 		return nil, nil, err
 	}
+	rt.health = rt.newHealth(loadHealthAddr())
 	return rt, closeAll, nil
 }
 
@@ -217,6 +223,61 @@ func (rt *agentRuntime) loadBackfill(link *agent.MQTTLink) error {
 	return nil
 }
 
+// newHealth 装配健康检查。四项探测全部读快照，不起连接、不碰串口。
+//
+// 串口一项看轮询器的实际读数：连续 5 个周期整条总线读不回任何数据判为不可用。
+// 只看「打开成功」不够——句柄在，线断了照样是打不开。
+func (rt *agentRuntime) newHealth(addr string) *agent.HealthServer {
+	rt.healthAddr = addr
+
+	return agent.NewHealthServer("edge-agent", rt.term.TerminalID, agentVersion, time.Now(), time.Now,
+		agent.HealthProbes{
+			Config: func() agent.ConfigCheck {
+				return agent.ConfigCheck{Status: "ok", ConfigVersion: rt.term.ConfigVersion}
+			},
+			Serial: func() agent.SerialCheck { return agent.SerialStatusOf(rt.busStates()) },
+			MQTT: func() agent.MQTTCheck {
+				return agent.MQTTStatusOf(rt.link.Connected(), rt.link.LastConnected())
+			},
+			Cache: func() agent.CacheCheck {
+				if rt.cache == nil {
+					return agent.CacheStatusOf(agent.CacheStats{}, rt.cacheSpec.spec, 0)
+				}
+				st, err := rt.cache.Stats()
+				if err != nil {
+					rt.log.Warn("读取缓存占用失败", pkglog.F("err", err.Error()))
+					return agent.CacheCheck{Status: "degraded"}
+				}
+				return agent.CacheStatusOf(st, rt.cacheSpec.spec, rt.cache.DroppedTotal())
+			},
+		})
+}
+
+// busStates 汇总每条总线是否还通。轮询器在 startWorkers 里创建，这里按同一顺序读。
+func (rt *agentRuntime) busStates() map[string]bool {
+	out := make(map[string]bool, len(rt.pollers))
+	for _, p := range rt.pollers {
+		out[p.BusID()] = p.BusUp()
+	}
+	return out
+}
+
+// startHealth 起健康检查 HTTP 服务。监听失败只记日志不退出：
+// 健康检查挂了不影响采集，退出反而会打断数据链路。
+func (rt *agentRuntime) startHealth(ctx context.Context, wg *sync.WaitGroup) {
+	if rt.health == nil {
+		return
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := rt.health.Serve(ctx, rt.healthAddr); err != nil {
+			rt.log.Error("健康检查服务退出", pkglog.F("err", err.Error()))
+		}
+	}()
+	rt.log.Info("健康检查已启动", pkglog.F("addr", rt.healthAddr))
+}
+
 // startWorkers 起连接守护、上报消费与每总线一个轮询协程。
 //
 // 采集出口先把批次记成周期聚合日志再入上行队列：两条都是非阻塞的，
@@ -240,6 +301,7 @@ func (rt *agentRuntime) startWorkers(ctx context.Context, wg *sync.WaitGroup) {
 	}
 	for i := range rt.term.Buses {
 		poller := agent.NewBusPoller(rt.term, &rt.term.Buses[i], rt.buses[i], sink)
+		rt.pollers = append(rt.pollers, poller)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

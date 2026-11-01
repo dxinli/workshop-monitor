@@ -93,6 +93,10 @@ type Evaluator struct {
 	// lastLive 记每个测点最近一次已判定的非补传采集时间。
 	// 迟到的旧读数不参与判定：它会倒退去抖计数，让告警在抖动中反复拉响与恢复。
 	lastLive map[string]time.Time
+
+	// lastEval 是最近一次完成判定的时刻（毫秒），供健康检查判断判定协程是否还在动。
+	// 队列不为空但该值长时间不变，说明判定卡在写库上。
+	lastEval atomic.Int64
 }
 
 // NewEvaluator 组装判定段。外部资源（存储、通知出口）全部注入。
@@ -172,6 +176,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, s Sample) error {
 	if snap == nil {
 		return nil
 	}
+	defer e.lastEval.Store(time.Now().UnixMilli())
 	for _, r := range snap.forPoint(s.TerminalID, s.BusID, s.PointCode) {
 		if err := e.apply(ctx, s, r); err != nil {
 			return err
@@ -179,6 +184,9 @@ func (e *Evaluator) Evaluate(ctx context.Context, s Sample) error {
 	}
 	return nil
 }
+
+// LastEvalTime 返回最近一次完成判定的时刻（毫秒），还没判定过时为 0。
+func (e *Evaluator) LastEvalTime() int64 { return e.lastEval.Load() }
 
 // acceptTime 拒绝迟到的旧读数。
 //

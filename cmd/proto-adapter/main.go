@@ -7,15 +7,33 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"workshop-monitor/internal/adapter/evaluate"
+	"workshop-monitor/internal/adapter/health"
 	"workshop-monitor/internal/adapter/ingest"
 	"workshop-monitor/internal/config"
 )
+
+// adapterVersion 写进健康检查响应，供部署核对镜像版本。
+// 与 deploy/versions.env 无关：那是依赖版本，这是本进程自己的版本。
+const adapterVersion = "1.0.0"
+
+// touchHandler 包一层，在每条报文处理后记录接收时刻。
+//
+// 健康检查靠它区分「连着但没数据」与「一直没连上」：前者是终端侧停了，
+// 后者是链路不通，排障方向完全相反。
+func touchHandler(next func(context.Context, string, []byte) error, at *atomic.Int64) func(context.Context, string, []byte) error {
+	return func(ctx context.Context, topic string, payload []byte) error {
+		err := next(ctx, topic, payload)
+		at.Store(time.Now().UnixMilli())
+		return err
+	}
+}
 
 func main() {
 	configPath := flag.String("config", "", "接入服务配置路径，如 config/adapter.json")
@@ -65,8 +83,10 @@ func run(configPath string) error {
 	}
 	startEvaluate(ctx, evalDeps)
 
+	var lastReceive atomic.Int64
 	pipeline := newPipeline(ctx, cfg, router, pool)
-	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password), newHandler(pipeline, evalDeps))
+	sub, err := ingest.NewSubscriber(subscriptionOf(cfg, filter, password),
+		touchHandler(newHandler(pipeline, evalDeps), &lastReceive))
 	if err != nil {
 		return err
 	}
@@ -75,11 +95,54 @@ func run(configPath string) error {
 		return err
 	}
 	fmt.Printf("已订阅 %s（方案 %s），等待上行报文\n", filter, cfg.TopicScheme)
+	serveHealth(ctx, evalDeps, sub, cfg, &lastReceive)
 
 	<-ctx.Done()
 	sub.Disconnect(250)
 	fmt.Printf("收到退出信号，已断开订阅；判定段 %s\n", describe(evalDeps))
 	return nil
+}
+
+// serveHealth 起健康检查协程。监听失败只记日志不退出：
+// 健康检查挂了不影响接收与判定，退出反而会丢掉活动集合与去抖计数。
+func serveHealth(ctx context.Context, deps *evaluateDeps, sub *ingest.Subscriber,
+	cfg *config.Adapter, lastReceive *atomic.Int64) {
+	srv := newHealthServer(deps, sub, cfg, lastReceive)
+	addr := healthAddr()
+	go func() {
+		if err := srv.Serve(ctx, addr); err != nil {
+			logErr("error", "健康检查服务退出", err)
+		}
+	}()
+	fmt.Printf("健康检查 %s/healthz\n", addr)
+}
+
+// defaultHealthAddr 是接入服务的健康检查监听地址。
+//
+// 端口取概要设计 §2.7 的 core 分组 9200（proto-adapter），默认只听回环：
+// 健康检查面向同机运维与 preflight，不对外网暴露。
+const defaultHealthAddr = "127.0.0.1:9200"
+
+func healthAddr() string {
+	if addr := os.Getenv("HEALTH_ADDR"); addr != "" {
+		return addr
+	}
+	return defaultHealthAddr
+}
+
+// newHealthServer 装配健康检查。四项探测只读快照，不新增连接。
+//
+// lastReceive 由 handler 在每条报文处理后推进：健康检查靠它区分「连着但没数据」
+// 与「一直没连上」，这两种在排障时指向完全不同的地方。
+func newHealthServer(deps *evaluateDeps, sub *ingest.Subscriber, cfg *config.Adapter,
+	lastReceive *atomic.Int64) *health.Server {
+	return health.New("proto-adapter", cfg.ClientID, adapterVersion, time.Now(), time.Now,
+		health.Deps{
+			Evaluate:      deps.healthStats,
+			ActiveInDB:    deps.activeInDB,
+			MQTTConnected: sub.Connected,
+			LastReceive:   lastReceive.Load,
+		})
 }
 
 // startEvaluate 启动判定段的三个后台协程：队列消费、通知投递、阈值热加载。
