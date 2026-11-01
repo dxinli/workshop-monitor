@@ -234,8 +234,8 @@
         "type": "function",
         "z": "f1a0000000000001",
         "name": "投递准备",
-        "func": "\n// 投递从这一刻起与 HTTP 响应无关：响应已经在另一条分支发走了。\nmsg.url = env.get(\"WECOM_WEBHOOK_URL\") || \"\";\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = msg.card;\nmsg.attempt = 1;\n// 单次投递上半 5 秒：通道挂死时重试阶梯不能被一次请求无限期拖住。\nmsg.requestTimeout = 5000;\n// 重试间隔：首次立即，之后 1s / 5s / 15s，共 4 次（BR-41）。\nmsg.retryDelaysMs = [1000, 5000, 15000];\nreturn msg;\n",
-        "outputs": 1,
+        "func": "\n// 投递从这一刻起与 HTTP 响应无关：响应已经在另一条分支发走了。\nmsg.url = env.get(\"WECOM_WEBHOOK_URL\") || \"\";\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = msg.card;\nmsg.attempt = 1;\n// 单次投递上限 5 秒：通道挂死时重试阶梯不能被一次请求无限期拖住。\nmsg.requestTimeout = 5000;\n// 重试间隔：首次立即，之后 1s / 5s / 15s，共 4 次（BR-41）。\nmsg.retryDelaysMs = [1000, 5000, 15000];\n\n// 通道地址没配时不能把消息送进 http request 节点：它遇到空 URL 会\n// node.error 后直接 return，不输出任何消息，于是重试阶梯与投递日志两条\n// 出路全断，这条通知就静默消失了。这里直接给出失败结论并留痕。\nif (!msg.url) {\n    msg.logEntry = {\n        status: \"FAILED\",\n        retryCount: 0,\n        httpCode: null,\n        failReason: \"WECOM_WEBHOOK_URL 未配置，未发起投递\"\n    };\n    return [null, msg];\n}\nreturn [msg, null];\n",
+        "outputs": 2,
         "timeout": 0,
         "noerr": 0,
         "initialize": "",
@@ -246,6 +246,9 @@
         "wires": [
             [
                 "f1a0000000000022"
+            ],
+            [
+                "f1a0000000000018"
             ]
         ]
     },

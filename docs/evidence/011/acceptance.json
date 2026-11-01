@@ -1,6 +1,6 @@
 {
   "task": "011 通知触达层",
-  "generatedAt": "2026-10-31T21:45:00+0800",
+  "generatedAt": "2026-11-01T09:20:00+0800",
   "nodeRed": "4.0.5（自定义镜像：+ node-red-contrib-postgresql 0.16.2）",
   "passed": true,
   "cases": [
@@ -53,6 +53,11 @@
       "name": "不做阈值求值、去抖、告警状态判定",
       "passed": true,
       "detail": "流程只读 point/terminal/device/alarm 与写 notify_log，无判定分支"
+    },
+    {
+      "name": "通道地址未配置时记 FAILED，不静默丢弃",
+      "passed": true,
+      "detail": "WECOM_WEBHOOK_URL 为空时受理仍返回 202，16 秒内 notify_log 出现 FAILED；修复前此场景下库里零记录"
     }
   ]
 }

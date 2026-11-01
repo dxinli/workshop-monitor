@@ -87,6 +87,9 @@ start_receiver() {
 }
 
 start_node_red() {
+  # 用 ${1-default} 而不是 ${1:-default}：本脚本要用空字符串表达「通道没配」，
+  # `:-` 会把空串也当成未提供，测的就不是那个分支了。
+  local webhook=${1-"http://host.docker.internal:$RECV_PORT/webhook"}
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   docker run -d --name "$NAME" \
     --network deploy_default -p "127.0.0.1:$API_PORT:1880" \
@@ -96,7 +99,7 @@ start_node_red() {
     -e PG_DATABASE="$(env_get POSTGRES_DB)" -e PG_USER=workshop_notify \
     -e PG_PASSWORD="$(env_get WORKSHOP_NOTIFY_PASSWORD)" \
     -e NOTIFY_MAX_RETRY=3 -e NOTIFY_CHANNEL=wecom-mock \
-    -e "WECOM_WEBHOOK_URL=http://host.docker.internal:$RECV_PORT/webhook" \
+    -e "WECOM_WEBHOOK_URL=$webhook" \
     -v "$WORK/nr:/data" \
     "$IMAGE" >/dev/null || return 1
 
@@ -259,6 +262,21 @@ retries=$(sql "SELECT retry_count FROM notify_log WHERE notify_id = 'NT-$TID-FAI
 
 reason=$(sql "SELECT coalesce(fail_reason,'') FROM notify_log WHERE notify_id = 'NT-$TID-FAIL'")
 [ -n "$reason" ] && ok "失败原因已记录" || ng "失败原因为空"
+
+# 6. 通道地址没配置时也要留痕。
+#
+# 回归用：http request 节点遇到空 URL 会 node.error 后直接 return，不输出任何消息，
+# 于是「重试阶梯」与「写投递日志」两条出路全断，通知静默消失——
+# adapter 收到 202、库里零记录。流程里加了空 URL 的显式分支。
+kill "$RECV_PID" 2>/dev/null
+RECV_PID=""
+start_node_red "" || exit 1
+resp=$(post '{"notifyId":"NT-'$TID'-NOURL","terminalId":"ESN-ZX-0001","pointId":"'$PID'","alarmType":"HIGH_LIMIT","level":3,"triggerValue":93,"occurTime":1793500504444}')
+code=$(printf '%s' "$resp" | tail -n1)
+[ "$code" = "202" ] && ok "未配置通道时受理仍返回 202" || ng "未配置通道时受理返回 $code（应为 202）"
+
+st=$(wait_status "NT-$TID-NOURL" 15)
+[ "$st" = "FAILED" ] && ok "未配置通道时记 FAILED（不静默丢弃）" || ng "未配置通道时日志状态 $st（应为 FAILED）"
 
 echo
 if [ "$fail" -eq 0 ]; then
