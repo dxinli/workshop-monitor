@@ -339,12 +339,19 @@ def case_no_abnormal_exit(ticks: list[dict]) -> tuple[bool, str]:
 def case_sample_matches_simulator() -> tuple[bool, str]:
     """验收 2：抽样核对实时值与历史曲线，与模拟器设定值一致。
 
-    做法：往模拟器写一个哨兵原始值，等两个采集周期，比对库里的工程值。
-    哨兵用 625 表示 62.5 ℃（缩放 0.1，接口规范 §12.1）。
+    往模拟器写一个哨兵原始值，等两个采集周期，比对库里的工程值。
+    哨兵 625 表示 62.5 ℃（缩放 0.1，接口规范 §12.1）。
+
+    两处口径要对，实测踩过：
+
+    - `realtime_value` 的键是 `terminal_id` + `point_id`（`A.1.motor_temp`），
+      **没有** bus_id / slave_addr / point_code 列——查错列名 SQL 直接失败。
+    - 历史要比**最新一条**，不是窗口 max。窗口里还留着哨兵写入前的默认值
+      （量程中点 90），取 max 永远是那个默认值，哨兵写没写都一样。
     """
     sentinel = 625
     expect_c = 62.5
-    url = ("http://127.0.0.1:8080/api/v1/reg/ESN-ZX-0001/A/1/0")
+    url = "http://127.0.0.1:8080/api/v1/reg/ESN-ZX-0001/A/1/0"
     req = urllib.request.Request(url, method="PUT",
                                  data=json.dumps({"value": sentinel}).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -356,18 +363,19 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
     time.sleep(12)  # 两个采集周期以上
 
     row = psql("SELECT value FROM monitor.realtime_value "
-               "WHERE terminal_id='ESN-ZX-0001' AND bus_id='A' "
-               "  AND slave_addr=1 AND point_code='motor_temp'")
-    hist = psql("SELECT round(max(value)::numeric, 2) FROM monitor.measurement "
-                "WHERE terminal_id='ESN-ZX-0001' AND bus_id='A' "
-                "  AND slave_addr=1 AND point_code='motor_temp' "
-                "  AND collect_time > now() - interval '2 minutes'")
+               "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp'")
+    hist = psql("SELECT round(value::numeric, 2) FROM monitor.measurement "
+                "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp' "
+                "ORDER BY collect_time DESC LIMIT 1")
+    if not row or not hist:
+        return False, f"读回为空：实时值={row!r} 历史最新={hist!r}"
     try:
         got_rt, got_hist = float(row), float(hist)
     except ValueError:
-        return False, f"读回非数值：实时值={row!r} 历史={hist!r}"
+        return False, f"读回非数值：实时值={row!r} 历史最新={hist!r}"
     ok = abs(got_rt - expect_c) < 1e-6 and abs(got_hist - expect_c) < 1e-6
-    return ok, f"写入原始 {sentinel}→期望 {expect_c}；实时值 {got_rt}，历史最大 {got_hist}"
+    return ok, (f"写入原始 {sentinel}→期望 {expect_c}；"
+                f"实时值 {got_rt}，历史最新 {got_hist}")
 
 
 def case_backfill_continuity() -> tuple[bool, str]:
