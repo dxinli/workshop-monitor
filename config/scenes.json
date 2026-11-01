@@ -1,0 +1,42 @@
+{
+  "configVersion": "1.0.0",
+  "scenes": {
+    "normal": {
+      "description": "正常工况：全部可复位的测点回到阈值内，清除协议层注入，门磁/急停/光幕归零",
+      "clearFaults": true,
+      "points": {
+        "motor_temp": 60,
+        "motor_vib": 2,
+        "ia": 50,
+        "ib": 50,
+        "ic": 50,
+        "uab": 380,
+        "p_total": 100,
+        "env_temp": 25,
+        "env_humi": 50,
+        "air_pressure": 0.6,
+        "door": 0,
+        "estop": 0,
+        "light_curtain": 0
+      }
+    },
+    "alarm": {
+      "description": "越限工况：覆盖高高限（绕组温度）、高限（A 相电流）、低限（气压）三类告警",
+      "clearFaults": false,
+      "points": {
+        "motor_temp": 108,
+        "ia": 85,
+        "air_pressure": 0.38
+      }
+    },
+    "safety": {
+      "description": "安全工况：门磁、急停、光幕全部置 1，触发紧急级告警与通知",
+      "clearFaults": false,
+      "points": {
+        "door": 1,
+        "estop": 1,
+        "light_curtain": 1
+      }
+    }
+  }
+}

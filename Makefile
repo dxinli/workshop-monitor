@@ -40,6 +40,7 @@ help:
 	@echo "passwd        从 .env 生成 Mosquitto 口令文件"
 	@echo "verify-broker 003 验收：认证、授权、LWT、两套命名方案"
 	@echo "verify-notify 011 验收：卡片字段、级别分流、重试与投递日志"
+	@echo "verify-ack    014 验收：活动告警清单、确认写 alarm_ack、场景切换、写视图权限"
 	@echo "verify-read-view 013 验收：8 个面板可读、只读、30 天走聚合"
 	@echo "logs          跟随容器日志"
 	@echo "sim-pty       建 10 对虚拟串口，端点表写到 .pty/"
@@ -203,6 +204,10 @@ verify-broker:
 # 需要已 seed 的库与已构建的 node-red 镜像；NOTIFY_ENV_FILE 可指向别的 .env。
 verify-notify:
 	./scripts/verify-notify.sh
+
+# 需要已 seed 的库与已构建的 node-red 镜像；EDIT_ENV_FILE 可指向别的 .env。
+verify-ack:
+	./scripts/verify-ack.sh
 
 # 需要全栈已起（make up）与已 seed 的库；GRAFANA_URL 可覆盖地址。
 verify-read-view:

@@ -21,6 +21,7 @@ from typing import Annotated
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+import scenes as scene_presets
 from faults import parse_plan
 from server import BusServer
 
@@ -48,8 +49,12 @@ class FaultRequest(BaseModel):
     exceptionCode: Annotated[int | None, Field(ge=1, le=4)] = None
 
 
-def build_app(buses: dict[str, BusServer]) -> FastAPI:
-    """``buses`` 以 ``terminalId.busId`` 为键。"""
+def build_app(buses: dict[str, BusServer], scene_set: scene_presets.SceneSet) -> FastAPI:
+    """``buses`` 以 ``terminalId.busId`` 为键。
+
+    ``scene_set`` 是工况预设。它在启动时载入一次，不在请求里读文件：
+    演示中途改配置文件会让同一个场景名前后表现不同，那是现场最难解释的故障。
+    """
     app = FastAPI(title="modbus-slave-sim", docs_url=None, redoc_url=None)
 
     def bus_of(terminal_id: str, bus_id: str) -> BusServer:
@@ -156,6 +161,47 @@ def build_app(buses: dict[str, BusServer]) -> FastAPI:
         bus = bus_of(terminal_id, bus_id)
         bus.state.clear_faults()
         return {"ok": True, "faults": {}}
+
+    @app.post("/api/v1/scene/{name}")
+    def apply_scene(name: str) -> dict:
+        """把工况预设写到全部总线的从站上。
+
+        路径不带终端维度（接口规范 §12.1）：工况是演示用的全局动作，
+        「让 5 台终端一起进入报警工况」才是它要表达的东西。要单点改写走
+        ``/api/v1/reg/...`` 那一族。
+        """
+        try:
+            scene = scene_set.get(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+
+        applied = []
+        for key in sorted(buses):
+            bus = buses[key]
+            try:
+                missing = scene_presets.unknown_codes(scene, bus.bus)
+                if missing:
+                    raise ValueError(
+                        f"测点编码不在点表里：{'、'.join(missing)}"
+                    )
+                writes = scene_presets.plan_bus(bus.bus, scene)
+                for slave_addr, start, words in writes:
+                    bus.store.write_many(slave_addr, start, words)
+            except (KeyError, ValueError) as exc:
+                # 场景是演示前置动作，写一半失败必须报出来：
+                # 部分终端进入报警工况、部分没进，演示现场会以为是告警漏判。
+                raise HTTPException(status_code=400, detail=f"{key}: {exc}") from None
+            if scene.clear_faults:
+                bus.state.clear_faults()
+            applied.append({"bus": key, "writes": len(writes)})
+
+        return {
+            "ok": True,
+            "scene": scene.name,
+            "description": scene.description,
+            "clearFaults": scene.clear_faults,
+            "buses": applied,
+        }
 
     return app
 

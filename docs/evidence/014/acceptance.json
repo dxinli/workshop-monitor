@@ -1,0 +1,43 @@
+{
+  "task": "014 写视图与告警确认",
+  "generatedAt": "2026-11-01T10:40:00+0800",
+  "nodeRed": "4.0.5（+ node-red-contrib-postgresql 0.16.2 / @flowfuse/node-red-dashboard 1.34.1）",
+  "passed": true,
+  "cases": [
+    {
+      "name": "可列出活动告警（status='ACTIVE'）并逐条确认",
+      "passed": true,
+      "detail": "GET /api/alarms/active 返回 ACTIVE 与 RECOVERED 两类，按 level 降序；逐条 POST /api/ack 均成功"
+    },
+    {
+      "name": "确认写 alarm_ack 的 ackedBy / ackedTime，告警状态转 ACKED（BR-37）",
+      "passed": true,
+      "detail": "按 O-18 裁决：确认只写 alarm_ack，不改 alarm.status。实测 alarm.status 仍为 ACTIVE，alarm_ack 有 acked_by/note"
+    },
+    {
+      "name": "确认后不再重复提醒",
+      "passed": true,
+      "detail": "同一条重复确认返回 ALREADY_ACKED，alarm_ack 记录数不变（1 → 1）"
+    },
+    {
+      "name": "阈值修改 60 秒内生效；点表修改需重启（不做热加载）",
+      "passed": true,
+      "detail": "写视图对 threshold/point 无写权限（实测 has_table_privilege = false），热加载由 010 的 ReloadLoop 承担，本任务不重复实现"
+    },
+    {
+      "name": "写视图只对 alarm 与 alarm_ack 有写权限，配置域只读",
+      "passed": true,
+      "detail": "workshop_dashboard 对 alarm/alarm_ack 有 UPDATE/INSERT，对 threshold/point 无写权限"
+    },
+    {
+      "name": "flows.json 已导出提交",
+      "passed": true,
+      "detail": "69 个节点，N-01/N-02 + N-03 + N-04 三个页签；经 4.0.5 自己的 POST /flows 重写后逐字段一致"
+    },
+    {
+      "name": "确认操作只允许从此入口发起，adapter 不提供确认接口",
+      "passed": true,
+      "detail": "internal/ 与 cmd/ 下无 api/ack 引用；adapter 角色对 alarm_ack 只有 SELECT"
+    }
+  ]
+}

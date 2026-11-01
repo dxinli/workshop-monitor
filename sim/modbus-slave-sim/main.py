@@ -22,6 +22,7 @@ from pathlib import Path
 
 import uvicorn
 
+import scenes as scene_presets
 from api import build_app
 from point_table import Bus, load_tree
 from server import BusServer
@@ -36,6 +37,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Modbus RTU 从站模拟器")
     parser.add_argument("--config", default="config/terminals", help="终端点表目录")
     parser.add_argument("--ports", default=".pty/ports.json", help="端点表 JSON")
+    parser.add_argument("--scenes", default="config/scenes.json", help="工况预设 JSON")
     parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="控制接口地址")
     parser.add_argument("--port", type=int, default=DEFAULT_HTTP_PORT, help="控制接口端口")
     parser.add_argument("--log-level", default="INFO", help="日志级别")
@@ -59,6 +61,9 @@ def load_ports(path: Path, buses: list[Bus]) -> dict[str, str]:
 
 
 async def run(args: argparse.Namespace) -> int:
+    # 场景文件在启动时读一次。缺文件即终止：启动成功但场景切换 404，
+    # 现场会以为是模拟器坏了，而实际是少挂了一个配置。
+    scenes = scene_presets.load(Path(args.scenes))
     tables = load_tree(Path(args.config))
     buses = [bus for table in tables for bus in table.buses]
     ports = load_ports(Path(args.ports), buses)
@@ -68,7 +73,7 @@ async def run(args: argparse.Namespace) -> int:
         await server.start()
         log.info("总线 %s 已就绪，端点 %s", server.bus.key, server.port)
 
-    app = build_app(servers)
+    app = build_app(servers, scenes)
     config = uvicorn.Config(
         app, host=args.host, port=args.port, log_level=args.log_level.lower(), access_log=False
     )
