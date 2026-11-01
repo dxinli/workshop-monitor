@@ -14,6 +14,7 @@
 | `card.py` | 报文模型与卡片渲染（校验口径、级别表、时间格式） |
 | `store.py` | 投递记录：按 `notifyId` 去重、按接收时间倒序查 |
 | `api.py` | 三条路由与卡片页面 |
+| `Dockerfile` | 容器化，供 compose `sim` profile 用（012 加） |
 | `test_wecom_mock.py` | 渲染与去重的单元测试，不起服务 |
 
 记录库用标准库 `sqlite3`，不引 ORM：`requirements.txt` 的三个版本在 `AGENTS.md`
@@ -21,18 +22,28 @@
 
 ## 运行
 
+主形态是 **compose `sim` profile 的服务**（012 容器化）：
+
+```bash
+make up
+docker compose --profile sim up -d wecom-mock   # 127.0.0.1:8081，记录库落卷
+```
+
+容器间走服务名 `wecom-mock:8081`，`.env.example` 的 `WECOM_WEBHOOK_URL` 就是它。
+记录库挂在 `wecom-data` 卷上，容器重建后投递记录还在。
+
+宿主机 venv 形态仍保留，只用于单条卡片的调试：
+
 ```bash
 python3.12 -m venv .venv-sim
 .venv-sim/bin/pip install -r sim/wecom-mock/requirements.txt pytest
 make sim-wecom                 # 127.0.0.1:8081，记录库 var/wecom-mock.db
 ```
 
-`.env.example` 的 `WECOM_WEBHOOK_URL=http://localhost:8081/webhook` 指向这里。
-容器内的 Node-RED 要改成 `http://wecom-mock:8081/webhook`——见「宿主形态」。
-
 ## 接口
 
-只监听 `127.0.0.1:8081`，不对公网暴露。
+宿主机侧只在 `127.0.0.1:8081` 上，不对外暴露。容器内监听 `0.0.0.0` 是为了能被
+同网络的其它服务访问——判据看宿主机侧端口映射（`.claude/rules/sim.md` §部署）。
 
 | 接口 | 方法 | 说明 |
 |---|---|---|
@@ -82,15 +93,15 @@ make sim-wecom                 # 127.0.0.1:8081，记录库 var/wecom-mock.db
 `markdown.content` 原样存进记录（`GET /api/v1/records` 可取），接真实通道时复用。
 两边不一致时以 `alarm.*` 为准，页面上的值就是记录里的值。
 
-## 宿主形态
+## 为什么要容器化
 
-`deploy/docker-compose.yml` 里**没有 wecom-mock 服务**：它是宿主机 venv 形态，
-与 `modbus-slave-sim` 一致（`tasks/004` 偏差 2 的处理方式）。这是不接 Compose 的
-直接后果：Node-RED 在容器里，`localhost:8081` 指容器自身，**`.env` 里的
-`WECOM_WEBHOOK_URL` 需要改成 `http://host.docker.internal:8081/webhook` 或宿主 IP**
-才能与容器内的 Node-RED 联调。
+019 交付的是宿主机 venv 形态（沿用 `modbus-slave-sim` 的做法）。但 Node-RED 在容器里，
+容器内的 `localhost` 是容器自己，`.env` 指 `localhost:8081` 会连到不存在的端口上。
+012 因此补了 `Dockerfile` 与 compose `sim` profile 服务，容器间走服务名直连，
+开放项 O-19 就此关闭。**`modbus-slave-sim` 仍是宿主机 venv**——它要 pty 直连端点，
+没有这个诉求。
 
-单独发一条卡片的联调不需要绕这一圈：
+单独发一条卡片的联调不必起全栈：
 
 ```bash
 .venv-sim/bin/python sim/wecom-mock/main.py --db var/wecom-mock.db &
