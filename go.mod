@@ -7,6 +7,7 @@ require (
 	github.com/goburrow/serial v0.1.0
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/rs/zerolog v1.33.0
+	go.etcd.io/bbolt v1.3.11
 )
 
 require (
