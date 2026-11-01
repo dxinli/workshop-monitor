@@ -247,6 +247,33 @@ else
   ng "「最近一次正常值」缺少时间或质量列"
 fi
 
+# ---------------------------------------------------------------- 7b 面板不得使用 Grafana 不认的 unit
+# Grafana 11.3 的 getValueFormat 只认 prefix/suffix/time/si/count/currency/bool 七种前缀，
+# dateTime: 之类的写法会被静默忽略——面板看着正常，配置其实没生效。
+if python3 - "$DASH_DIR" <<'PY'
+import glob, json, sys
+bad = []
+for f in glob.glob(sys.argv[1] + "/*.json"):
+    d = json.load(open(f, encoding="utf-8"))
+    for p in d["panels"]:
+        for o in p.get("fieldConfig", {}).get("overrides", []):
+            for prop in o.get("properties", []):
+                if prop.get("id") != "unit":
+                    continue
+                u = str(prop.get("value", ""))
+                if ":" in u:
+                    key = u.split(":", 1)[0]
+                    if key not in ("prefix", "suffix", "time", "si", "count", "currency", "bool"):
+                        bad.append("%s/%s: %s" % (f, p["title"], u))
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+PY
+then
+  ok "面板 unit 覆盖均为 Grafana 支持的写法"
+else
+  ng "面板出现 Grafana 不认的 unit 写法"
+fi
+
 # ---------------------------------------------------------------- 8 界面用语：无配电术语
 if python3 - "$DASH_DIR" <<'PY'
 import glob, json, sys

@@ -2,7 +2,7 @@
 
 | 文件 | 内容 |
 |---|---|
-| `acceptance.json` | 10 条用例的实测结果 |
+| `acceptance.json` | 11 条用例的实测结果 |
 | `verify.txt` | `make verify-read-view` 的完整输出 |
 | `plan-30d.txt` | 30 天曲线查询的 `EXPLAIN ANALYZE`，用于证明明细分支被剪枝 |
 
