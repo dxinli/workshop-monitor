@@ -379,29 +379,48 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
 
 
 def case_backfill_continuity() -> tuple[bool, str]:
-    """验收 3：断开上行 5 分钟再恢复，历史在中断时段连续、采集时间为原时刻。"""
+    """验收 3：断开上行 5 分钟再恢复，历史在中断时段连续、采集时间为原时刻。
+
+    补传的标志与采集时间都在 **measurement** 上（`backfill` / `collect_time`）。
+    `raw_message` 没有这两列——查它 SQL 直接失败。这条以前查错过表，
+    而旧 psql 吞掉报错返回空串，`int("" or 0) == 0` 就判成了「0 条越界」，
+    **假阳性**。所以这里连判据一起收紧：
+
+    - 连续性：断网窗口内的行数要等于「测点数 × 周期数」，少一行就是一个漏采周期
+    - 原时刻：断网期间采到、恢复后才收到的行（`receive_time > t1`），
+      其 `collect_time` 必须落在断网窗口内，不能是恢复时刻
+    """
     before = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
     t0 = now_ms()
     print("  断开上行 5 分钟…", flush=True)
     stop_broker()
     time.sleep(300)
-    mid = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
     start_broker()
     print("  已恢复，等补传…", flush=True)
     time.sleep(60)
     after = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
     t1 = now_ms()
 
-    # 补传报文的 collectTime 落在断网时段内，不是恢复时刻。
-    wrong = psql(
-        "SELECT count(*) FROM monitor.raw_message "
-        f"WHERE backfill IS TRUE AND collect_time < to_timestamp({t0} / 1000.0) "
-        f"   OR (backfill IS TRUE AND collect_time > to_timestamp({t1} / 1000.0))")
-    # 中断时段要有数据落下来：断网期间采集不停，恢复后补齐。
-    gap_filled = after > before
-    ok = gap_filled and int(wrong or 0) == 0
-    return ok, (f"断网前 {before} 行 → 断网末 {mid} 行 → 补传后 {after} 行；"
-                f"collectTime 越界的补传报文 {wrong} 条")
+    window = (f"collect_time >= to_timestamp({t0} / 1000.0) "
+              f"AND collect_time <= to_timestamp({t1} / 1000.0)")
+    got = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {window}") or 0)
+    # 140 测点 × (断网秒数 / 5 秒周期)。断 300 秒即 60 周期 → 8400 行。
+    cycles = max(1, int((t1 - t0) / 5000))
+    expected = 140 * cycles
+
+    # 本次断网补传出来的行：恢复后才收到、且标了 backfill。
+    scope = (f"backfill IS TRUE AND receive_time > to_timestamp({t1} / 1000.0)")
+    backfilled = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {scope}") or 0)
+    wrong = int(psql(
+        "SELECT count(*) FROM monitor.measurement "
+        f"WHERE {scope} AND (collect_time < to_timestamp({t0} / 1000.0) "
+        f"                 OR collect_time > to_timestamp({t1} / 1000.0))") or 0)
+
+    continuous = abs(got - expected) <= 140  # 允许 ±1 个周期的边界抖动
+    ok = after > before and continuous and backfilled > 0 and wrong == 0
+    return ok, (f"断网前 {before} 行 → 补传后 {after} 行；"
+                f"窗口内 {got} 行（期望 {expected}，{cycles} 周期）；"
+                f"补传 {backfilled} 行，collectTime 越界 {wrong} 行")
 
 
 def case_aggregation_matches_detail() -> tuple[bool, str]:
@@ -604,9 +623,14 @@ def write_report(path: Path, ticks: list[dict], results: list[dict],
         "",
         "## 说明",
         "",
-        "- 「保留策略生效」用**造旧数据真跑策略**验证：往 `measurement` 插 8 天前的行，",
-        "  跑 `policy_retention`，断言被清。不是只看 job 配置。2 小时试运行等不到 7 天，",
-        "  这是唯一能证明「真清了」的办法。",
+        "- 「保留策略生效」用**造旧数据真跑策略**验证，不是只看 job 配置。",
+        "  2 小时试运行等不到 7 天，造旧数据是唯一能证明「真清了」的办法。",
+        "  两个实测踩出的口径：`drop_chunks` 按整块删不按行删（物化超表 10 天一格，",
+        "  时间要留够余量才落进整块过期的格）；计数用独有 seq 区间当标记行，",
+        "  不靠时间阈值——时间阈值会把别人留下的旧行也算进判据。",
+        "  聚合那条走公共 API `CALL refresh_continuous_aggregate`，不写内部物化超表。",
+        "- 「抽样核对」比的是**最新一条**不是窗口 max：窗口里还留着哨兵写入前的",
+        "  量程中点默认值，取 max 会让哨兵写没写都一样。",
         "- 本报告不承诺 30 天真实趋势（见任务单偏差）。",
         "",
     ]
