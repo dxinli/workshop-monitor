@@ -61,6 +61,8 @@ services:
       PG_DASHBOARD_PASSWORD: ${WORKSHOP_DASHBOARD_PASSWORD}
       NOTIFY_CHANNEL: ${NOTIFY_CHANNEL:-wecom-mock}
       WECOM_WEBHOOK_URL: ${WECOM_WEBHOOK_URL}
+      # 灰度总开关：false 时投递准备只写 SKIPPED，不发起请求（BR-42）。
+      WECOM_ENABLED: ${WECOM_ENABLED:-true}
       # N-04 的两处跳转地址。都走环境变量：写死在流程里换环境就失效。
       # SELF_URL 指回自己（表格每 5 秒拉一次活动告警），用容器内地址。
       SELF_URL: http://127.0.0.1:1880
@@ -118,7 +120,26 @@ services:
       - timescaledb
     restart: unless-stopped
 
+  # 通知接收端。sim profile，与 core 分开起（.claude/rules/sim.md §部署）。
+  # 进容器的唯一理由是让 Node-RED 用服务名直连：容器里的 localhost 是容器自己，
+  # 不加这个服务，投递会连到不存在的端口上（开放项 O-19）。
+  # 记录库挂卷，容器重建后投递记录还在，012 要跨重启核对。
+  wecom-mock:
+    build:
+      context: ../sim/wecom-mock
+      args:
+        PYTHON_VERSION: ${PYTHON_SIM_VERSION}
+    image: workshop-monitor/wecom-mock:${PYTHON_SIM_VERSION}
+    profiles: ["sim"]
+    ports:
+      # 宿主机侧只听回环，不对外暴露。
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - wecom-data:/data
+    restart: unless-stopped
+
 volumes:
   timescale-data:
   mosquitto-data:
   grafana-data:
+  wecom-data:

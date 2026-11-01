@@ -1,0 +1,38 @@
+{
+  "task": "012 通知通道对接",
+  "generatedAt": "2026-11-01T14:56:55+0800",
+  "receiver": "sim/wecom-mock（compose sim profile）",
+  "passed": true,
+  "cases": [
+    {
+      "name": "通道地址与凭据走 .env，不入版本库",
+      "passed": true,
+      "detail": ".env 不入版本库，版本库无写死的通道地址与凭据"
+    },
+    {
+      "name": "check-notify.sh 验证连通并输出结果",
+      "passed": true,
+      "detail": "check-notify.sh 通过，7 项全 ok"
+    },
+    {
+      "name": "通道可达时卡片七项字段齐全",
+      "passed": true,
+      "detail": "SENT，七项字段逐项一致：workshop、terminalId、pointText、levelText、triggerValue、reason、occurTime 非零"
+    },
+    {
+      "name": "通道不可达时告警照常入库且留痕",
+      "passed": true,
+      "detail": "受理 202、FAILED 留痕（RequestError: connect ECONNREFUSED 127.0），告警行数保持 1"
+    },
+    {
+      "name": "灰度开关关闭只写 SKIPPED、不发请求",
+      "passed": true,
+      "detail": "SKIPPED 且未发请求，fail_reason=WECOM_ENABLED=false，灰度开关关闭，未发起投递"
+    },
+    {
+      "name": "切换通道只改配置不改代码",
+      "passed": true,
+      "detail": "同一份 flows 投到第二个通道，channel 字段跟随配置"
+    }
+  ]
+}
