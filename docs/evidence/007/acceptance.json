@@ -1,0 +1,33 @@
+{
+  "task": "007 本地缓存与补传",
+  "generatedAt": "2026-11-01T09:26:27+0800",
+  "terminal": "ESN-ZX-0001",
+  "passed": true,
+  "cases": [
+    {
+      "name": "三上限取接口规范 §9.4 的冻结值",
+      "passed": true,
+      "detail": "7 天 / 300000 条 / 536870912 字节（512 MB）"
+    },
+    {
+      "name": "断开 Broker 后采集不中断，数据进本地队列",
+      "passed": true,
+      "detail": "断网期间 5 个采集周期，间隔 [5025, 4999, 5001, 5000] ms；入队 10 条"
+    },
+    {
+      "name": "重启后本地队列仍在，恢复联网按 seq 正序补传",
+      "passed": true,
+      "detail": "断网期间入队 6 条，重启后收到 backfill=true 6 条（seq 有序=True 正序，collectTime 保留且 sendTime 更新=True，未复用重启后的新序号=True）"
+    },
+    {
+      "name": "补传单批不超过上限（BACKFILL_BATCH=2 时每轮 ≤2 条）",
+      "passed": true,
+      "detail": "入队 10 条，补传分 5 轮、每轮条数 [2, 2, 2, 2, 2]"
+    },
+    {
+      "name": "发布失败不出队：断网期间补传不发送、队列文件保持",
+      "passed": true,
+      "detail": "Broker 不可达时补传尝试 0 次均未出队（队列文件 65536 字节仍在）；恢复后补出 6 条"
+    }
+  ]
+}
