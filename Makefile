@@ -1,4 +1,4 @@
-.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker verify-notify verify-read-view sim-pty sim-test sim-up
+.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker verify-notify verify-read-view sim-pty sim-test sim-up sim-wecom
 
 GO ?= go
 BIN_DIR := bin
@@ -45,6 +45,7 @@ help:
 	@echo "sim-pty       建 10 对虚拟串口，端点表写到 .pty/"
 	@echo "sim-test      仿真件单元测试（需 sim/modbus-slave-sim 的 venv）"
 	@echo "sim-up        起 Modbus 从站模拟器（需先 sim-pty）"
+	@echo "sim-wecom     起通知接收端 wecom-mock（127.0.0.1:8081）"
 
 # 与 .github/workflows/ci.yml 的 go + config + aux 三个 job 保持同一集。
 # 两边任一增删检查项，必须同步改另一边。
@@ -71,7 +72,7 @@ check: verify tidy-check fmt-check vet lint test build-static config-check
 		python -m compileall -q sim && echo "仿真件语法通过"; \
 	else echo "跳过仿真件语法检查（未安装 python）"; fi
 	@if [ -x "$(SIM_PY)" ]; then \
-		$(SIM_PY) -m pytest sim/modbus-slave-sim -q || exit 1; \
+		$(SIM_PY) -m pytest sim -q || exit 1; \
 	else echo "跳过仿真件单元测试（无 .venv-sim）"; fi
 	@echo "check 通过"
 
@@ -223,14 +224,21 @@ sim-test:
 	@test -x "$(SIM_PY)" || { \
 		echo "缺少 $(SIM_PY)，先执行："; \
 		echo "  python3.12 -m venv .venv-sim"; \
-		echo "  .venv-sim/bin/pip install -r sim/modbus-slave-sim/requirements.txt pytest"; \
+		echo "  .venv-sim/bin/pip install \\"; \
+		echo "    -r sim/modbus-slave-sim/requirements.txt \\"; \
+		echo "    -r sim/wecom-mock/requirements.txt pytest"; \
 		exit 1; }
-	$(SIM_PY) -m pytest sim/modbus-slave-sim -q
+	$(SIM_PY) -m pytest sim -q
 
 sim-up:
 	@test -f .pty/ports.json || { echo "缺少 .pty/ports.json，先执行 make sim-pty"; exit 1; }
 	@test -x "$(SIM_PY)" || { echo "缺少 $(SIM_PY)，见 make sim-test 的提示"; exit 1; }
 	$(SIM_PY) sim/modbus-slave-sim/main.py --config config/terminals --ports .pty/ports.json
+
+# 通知接收端。与模拟器分开起：它不依赖 pty，也不该被模拟器的启动失败拖住。
+sim-wecom:
+	@test -x "$(SIM_PY)" || { echo "缺少 $(SIM_PY)，见 make sim-test 的提示"; exit 1; }
+	$(SIM_PY) sim/wecom-mock/main.py --db var/wecom-mock.db
 
 clean:
 	rm -rf $(BIN_DIR)
