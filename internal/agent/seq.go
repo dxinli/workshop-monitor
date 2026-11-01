@@ -77,6 +77,25 @@ func (a *SeqAllocator) Current() int64 {
 	return a.saved
 }
 
+// ResumeTo 把高水位抬到至少 seq：只在 seq 更大时生效，绝不倒退。
+//
+// 006 的交接条件就在这里：重启时取 max(文件高水位, 本地队列最大 seq)。
+// 只读文件会在「数据落盘但序号文件没来得及更新」时重号；只读队列会在
+// 「报文发出去且已出队」时重号。两处必须一起看。
+func (a *SeqAllocator) ResumeTo(seq int64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if seq <= a.saved {
+		return nil
+	}
+	if err := a.persist(seq); err != nil {
+		return err
+	}
+	a.saved = seq
+	return nil
+}
+
 // persist 原子写入高水位：同目录临时文件 + rename，避免半个数字被读回。
 func (a *SeqAllocator) persist(seq int64) error {
 	if a.path == "" {
