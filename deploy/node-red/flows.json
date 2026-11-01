@@ -1,0 +1,432 @@
+[
+    {
+        "id": "f1a0000000000001",
+        "type": "tab",
+        "label": "N-01 通知接收 · N-02 投递与重试",
+        "disabled": false,
+        "info": "N-01 通知接收：POST /api/notify 校验入参、按级别分流、组装卡片。\nN-02 投递与重试：HTTP 投递、1/5/15 秒重试、写 notify_log。\n\n边界：不做阈值求值、去抖、告警状态判定（那些在接入服务）。\n无状态：不配置 flow context 持久化，流程不承载跨消息状态。\n\n改完必须在编辑器里「导出」并提交 flows.json：界面里改了不导出，重装就丢。\n运行时不承载跨消息状态，重启即清空。"
+    },
+    {
+        "id": "f1a0000000000010",
+        "type": "http in",
+        "z": "f1a0000000000001",
+        "name": "N-01 POST /api/notify",
+        "url": "/api/notify",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000011"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000011",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "校验入参",
+        "func": "\n// 入口校验。参数不合法时回 400/422 且不写投递日志：\n// 没有可信 notifyId 做主键，强写会产生无主记录（接口规范 §4.4）。\nfunction reject(m, code, text) {\n    m.statusCode = code;\n    m.payload = { error: text };\n    return [m, null];\n}\n\nlet body = msg.payload;\nif (typeof body === \"string\") {\n    try {\n        body = JSON.parse(body);\n    } catch (e) {\n        return reject(msg, 400, \"请求体不是合法 JSON\");\n    }\n}\nif (body === null || typeof body !== \"object\" || Array.isArray(body)) {\n    return reject(msg, 400, \"请求体必须是 JSON 对象\");\n}\n\nconst missing = [];\nfor (const k of [\"notifyId\", \"terminalId\", \"pointId\", \"alarmType\"]) {\n    if (typeof body[k] !== \"string\" || body[k].trim() === \"\") {\n        missing.push(k);\n    }\n}\nif (!Number.isInteger(body.level) || body.level < 1 || body.level > 4) {\n    missing.push(\"level(1~4)\");\n}\nif (typeof body.triggerValue !== \"number\" || !isFinite(body.triggerValue)) {\n    missing.push(\"triggerValue\");\n}\nif (!Number.isInteger(body.occurTime) || body.occurTime <= 0) {\n    missing.push(\"occurTime(毫秒)\");\n}\nif (missing.length > 0) {\n    return reject(msg, 422, \"缺少或非法字段：\" + missing.join(\", \"));\n}\n\nmsg.notify = body;\nmsg.params = [body.notifyId, body.terminalId, body.pointId, body.alarmType, body.occurTime];\nmsg.payload = null;\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000019"
+            ],
+            [
+                "f1a0000000000013"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000013",
+        "type": "postgresql",
+        "z": "f1a0000000000001",
+        "name": "查重 + 卡片元数据",
+        "query": "-- 一次查询回答三件事：这单是否已推送过、卡片要的配置域字段、可选的告警标识。\nSELECT EXISTS(SELECT 1 FROM notify_log WHERE notify_id = $1 AND status = 'SENT') AS duplicate,\n       t.workshop, p.point_name, p.unit, p.bus_id, p.slave_addr, d.device_name,\n       a.alarm_id\n  FROM point p\n  JOIN terminal t ON t.terminal_id = p.terminal_id\n  JOIN device d ON d.terminal_id = p.terminal_id\n               AND d.bus_id = p.bus_id AND d.slave_addr = p.slave_addr\n  LEFT JOIN alarm a ON a.terminal_id = p.terminal_id\n                   AND a.point_id = p.point_id\n                   AND a.alarm_type = $4\n                   AND a.occur_time = to_timestamp($5 / 1000.0)\n WHERE p.terminal_id = $2 AND p.point_id = $3\n ORDER BY a.alarm_id DESC NULLS LAST\n LIMIT 1",
+        "postgreSQLConfig": "f1a000000000001a",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 600,
+        "y": 260,
+        "wires": [
+            [
+                "f1a0000000000014"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000014",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "判定继续或终止",
+        "func": "\n// 一次查询同时回答两件事：这个 notifyId 是否已推送过、卡片需要的配置域字段是什么。\n// 已推送过的请求直接丢弃，防重复推送（接口规范 §9.2 通知级幂等）。\n// 只把 SENT 当重复：上次失败的那条允许重来，靠 ON CONFLICT 覆盖同一行。\nconst rows = msg.payload;\nif (!Array.isArray(rows) || rows.length === 0) {\n    msg.statusCode = 422;\n    msg.payload = { error: \"未知测点：\" + msg.notify.terminalId + \" / \" + msg.notify.pointId };\n    return [msg, null];\n}\nconst row = rows[0];\nif (row.duplicate) {\n    msg.statusCode = 200;\n    msg.payload = { notifyId: msg.notify.notifyId, status: \"DUPLICATE\" };\n    return [msg, null];\n}\nmsg.meta = row;\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 820,
+        "y": 260,
+        "wires": [
+            [
+                "f1a0000000000019"
+            ],
+            [
+                "f1a0000000000015"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000015",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "组装卡片",
+        "func": "\n// 组装卡片（BR-40）：车间、终端、测点、级别、触发值、发生时间、告警原因。\n// 车间与测点名称取自配置域投影，请求里只有标识。\nconst LEVEL_TEXT = { 1: \"提示\", 2: \"警告\", 3: \"严重\", 4: \"紧急\" };\nconst TYPE_TEXT = {\n    HIGH_LIMIT: \"高限\", HIGH_HIGH_LIMIT: \"高高限\", LOW_LIMIT: \"低限\",\n    STATE_ALARM: \"状态报警\", SENSOR_OFFLINE: \"传感器离线\", TERMINAL_OFFLINE: \"终端离线\",\n    CACHE_WARNING: \"缓存预警\", DATA_QUALITY_ERROR: \"数据质量异常\"\n};\n\nfunction pad(v) {\n    return String(v).padStart(2, \"0\");\n}\nfunction fmt(ms) {\n    const d = new Date(ms);   // 容器 TZ=Asia/Shanghai，与面板时区一致\n    return d.getFullYear() + \"-\" + pad(d.getMonth() + 1) + \"-\" + pad(d.getDate()) +\n        \" \" + pad(d.getHours()) + \":\" + pad(d.getMinutes()) + \":\" + pad(d.getSeconds());\n}\n\nconst n = msg.notify;\nconst m = msg.meta;\nconst levelText = LEVEL_TEXT[n.level] || String(n.level);\nconst alarmTypeText = TYPE_TEXT[n.alarmType] || n.alarmType;\nconst deviceText = m.device_name + \" · 总线\" + m.bus_id + \" · 从站\" + m.slave_addr;\n// 告警标识回查不到时留空：adapter 先落库再发通知，回查不到说明告警已被清理，\n// 卡片照样发，只是少一个交叉索引。\nconst alarmId = m.alarm_id ? \"AL-\" + String(m.alarm_id).padStart(7, \"0\") : null;\nconst unitText = m.unit ? \" \" + m.unit : \"\";\n\nconst lines = [\n    \"**【\" + levelText + \"】\" + m.point_name + alarmTypeText + \"**\",\n    \"> 车间：\" + m.workshop,\n    \"> 终端：\" + n.terminalId,\n    \"> 设备：\" + deviceText,\n    \"> 触发值：**\" + n.triggerValue + unitText + \"**\",\n    \"> 采集时间：\" + fmt(n.occurTime)\n];\nif (n.reason) {\n    lines.push(\"> 原因：\" + n.reason);\n}\n\nmsg.card = {\n    notifyId: n.notifyId,\n    channel: env.get(\"NOTIFY_CHANNEL\") || \"wecom-mock\",\n    msgtype: \"markdown\",\n    alarm: {\n        alarmId: alarmId,\n        level: n.level,\n        levelText: levelText,\n        workshop: m.workshop,\n        terminalId: n.terminalId,\n        deviceText: deviceText,\n        pointText: m.point_name,\n        alarmType: n.alarmType,\n        alarmTypeText: alarmTypeText,\n        triggerValue: n.triggerValue,\n        unit: m.unit || null,\n        occurTime: n.occurTime,\n        reason: n.reason || null,\n        backfill: false\n    },\n    markdown: { content: lines.join(\"\\n\") }\n};\n\n// level 1 只入库不发通知（BR-39）。\nreturn n.level <= 1 ? [msg, null] : [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1040,
+        "y": 300,
+        "wires": [
+            [
+                "f1a0000000000016"
+            ],
+            [
+                "f1a0000000000020"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000016",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "受理-跳过（level 1）",
+        "func": "\n// 受理应答走一条分支，投递走另一条。响应一旦发出就与投递结果无关，\n// 接入服务只发不等结果（详细设计 §4.2）。\nconst n = msg.notify;\nconst resp = {\n    _msgid: msg._msgid,\n    res: msg.res,\n    statusCode: 200,\n    payload: { notifyId: n.notifyId, status: \"SKIPPED\" }\n};\nconst work = { _msgid: msg._msgid, notify: n, meta: msg.meta };\nwork.logEntry = { status: \"SKIPPED\", retryCount: 0, httpCode: null, failReason: \"level=1 仅入库，不投递\" };\nreturn [resp, work];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1260,
+        "y": 160,
+        "wires": [
+            [
+                "f1a0000000000019"
+            ],
+            [
+                "f1a0000000000018"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000020",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "受理-投递（level 2~4）",
+        "func": "\nconst n = msg.notify;\nconst resp = {\n    _msgid: msg._msgid,\n    res: msg.res,\n    statusCode: 202,\n    payload: { notifyId: n.notifyId, status: \"ACCEPTED\" }\n};\nconst work = { _msgid: msg._msgid, notify: n, meta: msg.meta, card: msg.card };\nreturn [resp, work];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1260,
+        "y": 380,
+        "wires": [
+            [
+                "f1a0000000000019"
+            ],
+            [
+                "f1a0000000000021"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000018",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "日志参数",
+        "func": "\n// 参数顺序与「写投递日志」节点里的 SQL 一一对应。\n// 成功与失败都写同一行：同一 notifyId 只有一条留痕，重复投递靠 ON CONFLICT 覆盖。\nconst n = msg.notify;\nconst e = msg.logEntry || {};\nmsg.params = [\n    n.notifyId,\n    (msg.meta && msg.meta.alarm_id) || null,\n    env.get(\"NOTIFY_CHANNEL\") || \"wecom-mock\",\n    e.status,\n    e.retryCount || 0,\n    (e.httpCode === undefined || e.httpCode === null) ? null : e.httpCode,\n    e.failReason || null\n];\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1500,
+        "y": 120,
+        "wires": [
+            [
+                "f1a0000000000017"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000017",
+        "type": "postgresql",
+        "z": "f1a0000000000001",
+        "name": "写投递日志",
+        "query": "INSERT INTO notify_log\n  (notify_id, alarm_id, channel, status, retry_count, http_code, fail_reason, sent_time)\nVALUES ($1, $2, $3, $4, $5, $6, $7, now())\nON CONFLICT (notify_id) DO UPDATE SET\n  alarm_id = COALESCE(EXCLUDED.alarm_id, notify_log.alarm_id),\n  status = EXCLUDED.status,\n  retry_count = EXCLUDED.retry_count,\n  http_code = EXCLUDED.http_code,\n  fail_reason = EXCLUDED.fail_reason,\n  sent_time = EXCLUDED.sent_time",
+        "postgreSQLConfig": "f1a000000000001a",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1700,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000019",
+        "type": "http response",
+        "z": "f1a0000000000001",
+        "name": "响应",
+        "statusCode": "",
+        "headers": {},
+        "x": 1500,
+        "y": 20,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a000000000001a",
+        "type": "postgreSQLConfig",
+        "z": "f1a0000000000001",
+        "name": "monitor（workshop_notify）",
+        "host": "PG_HOST",
+        "hostFieldType": "env",
+        "port": "PG_PORT",
+        "portFieldType": "env",
+        "database": "PG_DATABASE",
+        "databaseFieldType": "env",
+        "ssl": "false",
+        "sslFieldType": "bool",
+        "applicationName": "node-red-notify",
+        "applicationNameType": "str",
+        "max": 5,
+        "maxFieldType": "num",
+        "idle": 1000,
+        "idleFieldType": "num",
+        "connectionTimeout": 5000,
+        "connectionTimeoutFieldType": "num",
+        "userFieldType": "env",
+        "userEnv": "PG_USER",
+        "passwordFieldType": "env",
+        "passwordEnv": "PG_PASSWORD"
+    },
+    {
+        "id": "f1a0000000000021",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "投递准备",
+        "func": "\n// 投递从这一刻起与 HTTP 响应无关：响应已经在另一条分支发走了。\nmsg.url = env.get(\"WECOM_WEBHOOK_URL\") || \"\";\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = msg.card;\nmsg.attempt = 1;\n// 单次投递上半 5 秒：通道挂死时重试阶梯不能被一次请求无限期拖住。\nmsg.requestTimeout = 5000;\n// 重试间隔：首次立即，之后 1s / 5s / 15s，共 4 次（BR-41）。\nmsg.retryDelaysMs = [1000, 5000, 15000];\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1500,
+        "y": 380,
+        "wires": [
+            [
+                "f1a0000000000022"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000022",
+        "type": "http request",
+        "z": "f1a0000000000001",
+        "name": "投递通知",
+        "method": "POST",
+        "ret": "txt",
+        "paytoqs": "none",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1700,
+        "y": 380,
+        "wires": [
+            [
+                "f1a0000000000023"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000023",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "投递结果",
+        "func": "\nconst code = Number(msg.statusCode);\nif (Number.isFinite(code) && code >= 200 && code < 300) {\n    msg.logEntry = { status: \"SENT\", retryCount: msg.attempt - 1, httpCode: code };\n    return [msg, null];\n}\nmsg.lastHttpCode = Number.isInteger(code) ? code : null;\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1900,
+        "y": 380,
+        "wires": [
+            [
+                "f1a0000000000018"
+            ],
+            [
+                "f1a0000000000024"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000024",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "重试判定",
+        "func": "\n// 首次 + NOTIFY_MAX_RETRY 次重试（默认 3，与 AGENTS.md 的通知重试表一致）。\n// 间隔表用完后沿用最后一个间隔，避免第 4 次以后变成零间隔风暴。\nconst maxRetries = Number(env.get(\"NOTIFY_MAX_RETRY\") || 3);\nconst maxAttempts = Math.max(1, maxRetries) + 1;\nif (msg.attempt < maxAttempts) {\n    const idx = Math.min(msg.attempt - 1, msg.retryDelaysMs.length - 1);\n    msg.delay = msg.retryDelaysMs[idx];\n    msg.attempt += 1;\n    return [msg, null];\n}\nmsg.logEntry = {\n    status: \"FAILED\",\n    retryCount: msg.attempt - 1,\n    httpCode: msg.lastHttpCode === undefined ? null : msg.lastHttpCode,\n    failReason: String(msg.payload).slice(0, 500)\n};\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2100,
+        "y": 440,
+        "wires": [
+            [
+                "f1a0000000000025"
+            ],
+            [
+                "f1a0000000000018"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000025",
+        "type": "delay",
+        "z": "f1a0000000000001",
+        "name": "投递重试间隔",
+        "pauseType": "delayv",
+        "timeout": "1000",
+        "timeoutUnits": "milliseconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 2300,
+        "y": 440,
+        "wires": [
+            [
+                "f1a0000000000026"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000026",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "重试准备",
+        "func": "\nmsg.payload = msg.card;\nmsg.headers = { \"Content-Type\": \"application/json\" };\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2500,
+        "y": 440,
+        "wires": [
+            [
+                "f1a0000000000022"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000030",
+        "type": "delay",
+        "z": "f1a0000000000001",
+        "name": "日志重试间隔",
+        "pauseType": "delayv",
+        "timeout": "1000",
+        "timeoutUnits": "milliseconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "second",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": false,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 400,
+        "y": 620,
+        "wires": [
+            [
+                "f1a0000000000017"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000027",
+        "type": "catch",
+        "z": "f1a0000000000001",
+        "name": "异常捕获",
+        "scope": null,
+        "uncaught": true,
+        "x": 160,
+        "y": 560,
+        "wires": [
+            [
+                "f1a0000000000028"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000028",
+        "type": "function",
+        "z": "f1a0000000000001",
+        "name": "异常处理",
+        "func": "\n// 统一异常出口，分两种。\n//\n// 一、写投递日志失败：按 1 秒重试 3 次。日志是这条通知的唯一留痕，\n//     丢了就查不出「发出去了没有」。响应早已发出，重试不拖慢调用方。\n// 二、其余异常（查询失败、函数抛错）：没有可信 notifyId 就没有留痕，\n//     回 500 让调用方从自己日志里看到，不写库、不重试。\nconst err = msg.error || {};\nconst sourceId = (err.source && err.source.id) || \"\";\nconst detail = err.message ? err.message : String(err);\nconst isLogWrite = sourceId === \"f1a0000000000017\";\n// 投递失败已经由重试阶梯处理并有失败日志，这里再刷一条只是噪音。\nconst isDelivery = sourceId === \"f1a0000000000022\";\nif (isDelivery) {\n    return [null, null];\n}\n\nif (isLogWrite) {\n    const tried = (msg.logRetry || 0) + 1;\n    if (tried <= 3) {\n        msg.logRetry = tried;\n        msg.delay = 1000;\n        return [null, msg];\n    }\n    node.error(\"写投递日志连续失败 3 次，已放弃：\" + detail);\n    return [null, null];\n}\n\nnode.warn(\"通知流程异常：\" + detail);\nif (!msg.res || !msg.notify) {\n    return [null, null];\n}\nmsg.statusCode = 500;\nmsg.payload = { error: \"通知触达层内部错误\", detail: detail };\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 200,
+        "y": 620,
+        "wires": [
+            [
+                "f1a0000000000019"
+            ],
+            [
+                [
+                    "f1a0000000000030"
+                ]
+            ]
+        ]
+    }
+]

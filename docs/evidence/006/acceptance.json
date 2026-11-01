@@ -1,0 +1,64 @@
+{
+  "task": "006 上行与断连通知",
+  "generatedAt": "2026-10-31T20:32:45+0800",
+  "terminal": "ESN-ZX-0001",
+  "topicScheme": "grid（另有一段 internal 对照）",
+  "passed": true,
+  "cases": [
+    {
+      "name": "数据与状态两类消息分别订阅到，主题随方案展开",
+      "passed": true,
+      "detail": "收到 6 条，主题 ['/edge/ESN-ZX-0001/data/up', '/edge/ESN-ZX-0001/status/up']"
+    },
+    {
+      "name": "报文头 8 个规范字段齐全",
+      "passed": true,
+      "detail": "schemaVersion=2.0 msgId=ESN-ZX-0001-00000003 esn=ESN-ZX-0001 seq=3 collectTime=1793449805666 sendTime=1793449805692 backfill=False"
+    },
+    {
+      "name": "同一次采集的多个测点共享同一 seq",
+      "passed": true,
+      "detail": "4 条 DATA，每条 14 点，seq 各不重复：[3, 4, 5, 6]"
+    },
+    {
+      "name": "序号单调递增且重启不归零",
+      "passed": true,
+      "detail": "第一次运行末条 seq=7，重启后首条 seq=9（大于前次最大值；单调=True）"
+    },
+    {
+      "name": "sendTime 独立于 collectTime 且 collectTime 沿用批次时刻",
+      "passed": true,
+      "detail": "2 条 DATA 的 collectTime 均命中批次开始时刻，sendTime 均晚于它"
+    },
+    {
+      "name": "采集失败的点仍在数组中且 value=null",
+      "passed": true,
+      "detail": "1 条 A 总线报文均含 14 点，motor_temp 为 null + quality=2"
+    },
+    {
+      "name": "异常退出后 3 个上报周期内收到 OFFLINE（LWT）",
+      "passed": true,
+      "detail": "kill 后 3 ms 收到 OFFLINE/UNEXPECTED_DISCONNECT（上限 15000 ms）"
+    },
+    {
+      "name": "Broker 重启后自动重连并补发 ONLINE",
+      "passed": true,
+      "detail": "重连成功 1 次、退避重试 2 次；重连后 Broker 上的 Retain 状态 = ONLINE"
+    },
+    {
+      "name": "主题随 MQTT_TOPIC_SCHEME 切换",
+      "passed": true,
+      "detail": "internal 方案下收到 ['/workshop/ESN-ZX-0001/data/up', '/workshop/ESN-ZX-0001/status/up']；/edge/ 前缀消息 0 条（应为 0）"
+    },
+    {
+      "name": "连续失败报离线事件、恢复报恢复事件",
+      "passed": true,
+      "detail": "SENSOR_OFFLINE（从站 1，连续 5 次，reason=CONTINUOUS_TIMEOUT）→ SENSOR_RECOVERED"
+    },
+    {
+      "name": "internal/model 只有结构体，无方法无校验",
+      "passed": true,
+      "detail": "1 个文件均无方法声明"
+    }
+  ]
+}
