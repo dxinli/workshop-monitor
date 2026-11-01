@@ -1,0 +1,38 @@
+{
+  "task": "019 通知接收端 wecom-mock",
+  "generatedAt": "2026-11-01T10:45:48+0800",
+  "endpoint": "http://127.0.0.1:8091/webhook",
+  "passed": true,
+  "cases": [
+    {
+      "name": "完整报文回 200 且可查",
+      "passed": true,
+      "detail": "记录 NT-ESN-ZX-0001-A.1.motor_temp-1793500200123，状态 SENT，字段逐项一致"
+    },
+    {
+      "name": "同一 notifyId 重复投递不产生第二条记录",
+      "passed": true,
+      "detail": "投递 4 次仍是 1 条记录，retryCount=3"
+    },
+    {
+      "name": "校验失败回 4xx 且不写记录",
+      "passed": true,
+      "detail": "非法 JSON→422；alarm 缺 workshop→422；缺 notifyId→422；level=9 越界→422；记录数保持 1"
+    },
+    {
+      "name": "记录按接收时间倒序，limit 生效",
+      "passed": true,
+      "detail": "倒序 ['NT-order-2', 'NT-order-1', 'NT-order-0']；total=3 时 limit=2 返回 2 条"
+    },
+    {
+      "name": "卡片页渲染七项字段",
+      "passed": true,
+      "detail": "8 项全部渲染：车间、终端、设备、测点、级别、触发值、发生时间、告警原因"
+    },
+    {
+      "name": "补传标灰，缺 threshold 不渲染阈值",
+      "passed": true,
+      "detail": "补传卡片带 is-backfill 与「历史补传」，无 threshold 时不渲染阈值行"
+    }
+  ]
+}

@@ -24,7 +24,8 @@ Modbus RTU 从站模拟器。替代 50 台现场传感器，提供 10 条独立�
 ```bash
 # 1. 依赖（Python 3.12.7）。venv 放在仓库根的 .venv-sim，与 CI 同名
 python3.12 -m venv .venv-sim
-.venv-sim/bin/pip install -r sim/modbus-slave-sim/requirements.txt pytest
+.venv-sim/bin/pip install -r sim/modbus-slave-sim/requirements.txt \
+  -r sim/wecom-mock/requirements.txt pytest
 
 # 2. 建 10 对虚拟串口，端点表写到 .pty/
 make sim-pty
