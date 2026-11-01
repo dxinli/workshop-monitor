@@ -51,7 +51,7 @@ docker exec deploy-node-red-1 node /tmp/run-card.js           # 在 Node 20 里�
 顺带验证了两件事：
 
 1. **容器可达性**——`host.docker.internal` 在 `deploy-node-red-1` 里可解析、可连通，
-   注册为 O-18（`.env.example` 仍是 `localhost:8081`，改与不改由 012 一次定齐）。
+   注册为 O-19（`.env.example` 仍是 `localhost:8081`，改与不改由 012 一次定齐）。
 2. **去重跨进程有效**——第二次投递来自另一个网络命名空间，仍命中同一条记录。
 
 ## 三处容易误判的细节

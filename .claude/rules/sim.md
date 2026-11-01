@@ -66,9 +66,18 @@ paths:
 
 ## 部署
 
-模拟器最终走 Compose `sim` profile，与 `core` 分开启动；单实例常驻内存 ≤ 100 MB。
-004 交付的是宿主机 venv 形态（`sim/modbus-slave-sim/README.md`），Compose 服务
-与镜像随首次需要容器化的任务补齐，偏差登记在 `tasks/004-仿真链路与点表核对.md`。
+模拟器走 Compose `sim` profile，与 `core` 分开启动；单实例常驻内存 ≤ 100 MB。
+逐个补齐，谁被容器间调用谁先容器化：
+
+| 仿真件 | 形态 | 说明 |
+|---|---|---|
+| `modbus-slave-sim` | 宿主机 venv | 004 交付，需 pty 直连端点，暂不容器化 |
+| `wecom-mock` | Compose `sim` profile | 012 容器化：Node-RED 在容器里，须走服务名直连 |
+| `bypass-sim` | 未实现 | — |
+
+**「控制接口仅 127.0.0.1」按宿主机侧端口映射判**，不按容器内监听判：
+容器里监听 `0.0.0.0` 才能被同网络的其它服务访问，宿主机侧由 `ports` 的
+`127.0.0.1:…` 限定不对外暴露。两者不矛盾，别把容器内监听当违例。
 
 ```bash
 scripts/setup-pty.sh                       # 生成 10 对 pty 与端点表
@@ -76,6 +85,8 @@ scripts/setup-pty.sh                       # 生成 10 对 pty 与端点表
   --config config/terminals --ports .pty/ports.json
 curl -X PUT localhost:8080/api/v1/reg/ESN-ZX-0001/A/1/0 \
   -H 'Content-Type: application/json' -d '{"value":625}'
+
+docker compose --profile sim up -d wecom-mock   # 通知接收端
 ```
 
 ## 自检

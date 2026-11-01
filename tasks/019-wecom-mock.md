@@ -74,7 +74,7 @@ make sim-wecom &
    容器内联调要用 `http://host.docker.internal:8081/webhook`。已在容器里实测这条路径可达
    （见证据）。**`.env.example` 的 `WECOM_WEBHOOK_URL` 仍是 `localhost:8081` 没改**——
    改它会破坏宿主机侧的 `scripts/verify-notify.sh` 口径，而 012 才决定最终指向。
-   这一点登记为 O-18。
+   这一点登记为 O-19（原 O-18，与 014 撞号后改号）。
 
 4. **`make check` 与 CI 的 pytest 目标从 `sim/modbus-slave-sim` 扩到 `sim`。**
    两个仿真件各自有测试，只跑一个会让另一个的用例永远不执行。CI 的装依赖命令同时列出
