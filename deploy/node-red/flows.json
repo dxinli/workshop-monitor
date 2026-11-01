@@ -51,7 +51,7 @@
         "type": "postgresql",
         "z": "f1a0000000000001",
         "name": "查重 + 卡片元数据",
-        "query": "-- 一次查询回答三件事：这单是否已推送过、卡片要的配置域字段、可选的告警标识。\nSELECT EXISTS(SELECT 1 FROM notify_log WHERE notify_id = $1 AND status = 'SENT') AS duplicate,\n       t.workshop, p.point_name, p.unit, p.bus_id, p.slave_addr, d.device_name,\n       a.alarm_id\n  FROM point p\n  JOIN terminal t ON t.terminal_id = p.terminal_id\n  JOIN device d ON d.terminal_id = p.terminal_id\n               AND d.bus_id = p.bus_id AND d.slave_addr = p.slave_addr\n  LEFT JOIN alarm a ON a.terminal_id = p.terminal_id\n                   AND a.point_id = p.point_id\n                   AND a.alarm_type = $4\n                   AND a.occur_time = to_timestamp($5 / 1000.0)\n WHERE p.terminal_id = $2 AND p.point_id = $3\n ORDER BY a.alarm_id DESC NULLS LAST\n LIMIT 1",
+        "query": "-- 一次查询回答三件事：这条通知是否已推送过、卡片要的配置域字段、可选的告警标识。\n--\n-- 幂等只看 notifyId + status='SENT'。同一条活动告警重复命中时判定段不会再投递\n-- （活动集合挡住），所以这里不需要按 alarm_id 再判一次；判定段恢复后重新拉响\n-- 会写一条新告警、新 occurTime，也就有新 notifyId，属于真正的新一次推送。\nSELECT EXISTS(SELECT 1 FROM notify_log WHERE notify_id = $1 AND status = 'SENT') AS duplicate,\n       t.workshop, p.point_name, p.unit, p.bus_id, p.slave_addr, d.device_name,\n       a.alarm_id\n  FROM point p\n  JOIN terminal t ON t.terminal_id = p.terminal_id\n  JOIN device d ON d.terminal_id = p.terminal_id\n               AND d.bus_id = p.bus_id AND d.slave_addr = p.slave_addr\n  LEFT JOIN alarm a ON a.terminal_id = p.terminal_id\n                   AND a.point_id = p.point_id\n                   AND a.alarm_type = $4\n                   AND a.occur_time = to_timestamp($5 / 1000.0)\n WHERE p.terminal_id = $2 AND p.point_id = $3\n ORDER BY a.alarm_id DESC NULLS LAST\n LIMIT 1",
         "postgreSQLConfig": "f1a000000000001a",
         "split": false,
         "rowsPerMsg": 1,
@@ -188,7 +188,9 @@
         "outputs": 1,
         "x": 1700,
         "y": 120,
-        "wires": []
+        "wires": [
+            []
+        ]
     },
     {
         "id": "f1a0000000000019",
@@ -430,6 +432,1024 @@
                     "f1a0000000000030"
                 ]
             ]
+        ]
+    },
+    {
+        "id": "f1a0000000000101",
+        "type": "tab",
+        "label": "N-03 告警确认",
+        "disabled": false,
+        "info": "确认只写 alarm_ack（ackedBy / ackedTime），不改 alarm.status。\n状态机是 ACTIVE → RECOVERED → ACKED：「确认」是独立的操作事件，\n不是「恢复」的替代。把 status 改成 ACKED 会让判定的 Clear（只更新\nstatus='ACTIVE' 的行）再也落不了真实恢复时间。\n\n确认入口只此一处，adapter 不提供确认接口（BR-37）。"
+    },
+    {
+        "id": "f1a0000000000110",
+        "type": "http in",
+        "z": "f1a0000000000101",
+        "name": "N-03 POST /api/ack",
+        "url": "/api/ack",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000111"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000111",
+        "type": "function",
+        "z": "f1a0000000000101",
+        "name": "校验入参",
+        "func": "\n// 入参校验。确认是写操作，参数不合法时回 400/422 且不落库：\n// 没有可信 alarmId 就写 alarm_ack，会产生挂不到告警上的孤儿记录。\nfunction reject(m, code, text) {\n    m.statusCode = code;\n    m.payload = { error: text };\n    return [m, null];\n}\n\nlet body = msg.payload;\nif (typeof body === \"string\") {\n    try {\n        body = JSON.parse(body);\n    } catch (e) {\n        return reject(msg, 400, \"请求体不是合法 JSON\");\n    }\n}\nif (body === null || typeof body !== \"object\" || Array.isArray(body)) {\n    return reject(msg, 400, \"请求体必须是 JSON 对象\");\n}\n\nconst ids = [].concat(body.alarmId === undefined ? [] : body.alarmId);\nif (ids.length === 0) {\n    return reject(msg, 422, \"缺少 alarmId\");\n}\nconst parsed = [];\nfor (const raw of ids) {\n    const n = Number(raw);\n    if (!Number.isInteger(n) || n <= 0) {\n        return reject(msg, 422, \"alarmId 必须是正整数：\" + raw);\n    }\n    parsed.push(n);\n}\nconst ackedBy = typeof body.ackedBy === \"string\" ? body.ackedBy.trim() : \"\";\nif (ackedBy === \"\") {\n    return reject(msg, 422, \"缺少 ackedBy（谁确认的，必填）\");\n}\nif (ackedBy.length > 64) {\n    return reject(msg, 422, \"ackedBy 超过 64 字符\");\n}\nconst note = typeof body.note === \"string\" ? body.note.slice(0, 500) : null;\n\nmsg.ack = { alarmIds: parsed, ackedBy: ackedBy, note: note };\nmsg.params = [parsed, ackedBy, note];\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000119"
+            ],
+            [
+                "f1a0000000000112"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000112",
+        "type": "postgresql",
+        "z": "f1a0000000000101",
+        "name": "写确认 + 回读状态",
+        "query": "\n-- 一条语句完成两件事：写确认记录、回读每条告警确认后的状态。\n--\n-- 确认不改 alarm.status：状态机里 ACTIVE → RECOVERED → ACKED 是「先恢复后确认」，\n-- 现场常常在告警还 ACTIVE 时就确认了。此时若把 status 改成 ACKED，\n-- 判定的 Clear 只更新 status='ACTIVE' 的行，这条告警的真实恢复事件就永远落不了库。\nWITH acked AS (\n    INSERT INTO alarm_ack (alarm_id, acked_by, note)\n    SELECT a.alarm_id, $2, $3\n      FROM alarm a\n     WHERE a.alarm_id = ANY($1::bigint[])\n       AND a.status IN ('ACTIVE','RECOVERED')\n       AND NOT EXISTS (SELECT 1 FROM alarm_ack x WHERE x.alarm_id = a.alarm_id)\n    RETURNING alarm_id, acked_by, acked_time\n)\nSELECT a.alarm_id,\n       a.status,\n       a.alarm_type,\n       a.point_id,\n       (k.alarm_id IS NOT NULL) AS acknowledged,\n       COALESCE(k.acked_by, prev.acked_by)     AS acked_by,\n       COALESCE(k.acked_time, prev.acked_time) AS acked_time\n  FROM alarm a\n  LEFT JOIN acked k ON k.alarm_id = a.alarm_id\n  LEFT JOIN LATERAL (\n        SELECT x.acked_by, x.acked_time\n          FROM alarm_ack x\n         WHERE x.alarm_id = a.alarm_id\n         ORDER BY x.acked_time DESC\n         LIMIT 1\n  ) prev ON TRUE\n WHERE a.alarm_id = ANY($1::bigint[])\n ORDER BY a.alarm_id\n",
+        "postgreSQLConfig": "f1a000000000010a",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 600,
+        "y": 260,
+        "wires": [
+            [
+                "f1a0000000000113"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000113",
+        "type": "function",
+        "z": "f1a0000000000101",
+        "name": "组装结果",
+        "func": "\n// 逐条给出结果。三种情况分开说，别混成一句「失败」：\n//   ACKED         本次写入成功\n//   ALREADY_ACKED 之前已经确认过（并发或重复点击，属正常幂等）\n//   NOT_ACKABLE   告警处于 CLOSED 等不可确认的状态，应当拒绝\n//   NOT_FOUND     alarmId 不存在，调用方拿错了 id\nconst rows = Array.isArray(msg.payload) ? msg.payload : [];\nconst found = new Map();\nfor (const r of rows) {\n    found.set(Number(r.alarm_id), r);\n}\n\nconst results = [];\nlet ackedCount = 0;\nfor (const id of msg.ack.alarmIds) {\n    const r = found.get(id);\n    if (!r) {\n        results.push({ alarmId: id, status: \"NOT_FOUND\" });\n        continue;\n    }\n    const alreadyAcked = r.status === \"ACKED\" || r.acked_by != null;\n    if (r.acknowledged === true) {\n        ackedCount++;\n        results.push({\n            alarmId: id, status: \"ACKED\", alarmStatus: r.status,\n            ackedBy: r.acked_by || null,\n            ackedTime: r.acked_time ? new Date(r.acked_time).getTime() : null\n        });\n    } else if (alreadyAcked) {\n        results.push({\n            alarmId: id, status: \"ALREADY_ACKED\", alarmStatus: r.status,\n            ackedBy: r.acked_by || null,\n            ackedTime: r.acked_time ? new Date(r.acked_time).getTime() : null\n        });\n    } else {\n        results.push({ alarmId: id, status: \"NOT_ACKABLE\", alarmStatus: r.status });\n    }\n}\n\nif (results.every(r => r.status === \"NOT_FOUND\")) {\n    msg.statusCode = 404;\n    msg.payload = { error: \"alarmId 都不存在\", results: results };\n    return msg;\n}\nmsg.statusCode = 200;\nmsg.payload = { results: results, ackedCount: ackedCount };\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 820,
+        "y": 260,
+        "wires": [
+            [
+                "f1a0000000000119"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000119",
+        "type": "http response",
+        "z": "f1a0000000000101",
+        "name": "响应",
+        "statusCode": "",
+        "headers": {},
+        "x": 1040,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000117",
+        "type": "catch",
+        "z": "f1a0000000000101",
+        "name": "确认异常",
+        "scope": null,
+        "uncaught": true,
+        "x": 160,
+        "y": 400,
+        "wires": [
+            [
+                "f1a0000000000118"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000118",
+        "type": "function",
+        "z": "f1a0000000000101",
+        "name": "确认异常处理",
+        "func": "\n// 写库失败：回 500 且不回 200。确认是写操作，失败必须让调用方看见，\n// 与通知投递「只发不等结果」的语义相反。\nconst detail = (msg.error && msg.error.message) ? msg.error.message : String(msg.error);\nnode.error(\"告警确认失败：\" + detail);\nif (!msg.res) {\n    return null;\n}\nmsg.statusCode = 500;\nmsg.payload = { error: \"告警确认失败\", detail: detail };\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 400,
+        "wires": [
+            [
+                "f1a0000000000119"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000201",
+        "type": "tab",
+        "label": "N-04 写视图",
+        "disabled": false,
+        "info": "写视图的三个只读查询：活动告警清单、健康查看。\n场景切换与跳转读视图由 Dashboard 的按钮直接打 HTTP，不在此处落业务流程。\n\n本页签只读。所有写操作集中在 N-03。"
+    },
+    {
+        "id": "f1a0000000000210",
+        "type": "http in",
+        "z": "f1a0000000000201",
+        "name": "GET /api/alarms/active",
+        "url": "/api/alarms/active",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000211"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000211",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "取终端过滤",
+        "func": "\n// ?terminalId= 可选。空串表示不过滤，SQL 里用 $1 = '' 判。\nconst q = (msg.req && msg.req.query) || {};\nmsg.params = [typeof q.terminalId === \"string\" ? q.terminalId : \"\"];\nmsg.payload = null;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000212"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000212",
+        "type": "postgresql",
+        "z": "f1a0000000000201",
+        "name": "活动告警清单",
+        "query": "-- 活动告警清单。确认只写 alarm_ack、不改 status，所以「是否已确认」要从\n-- alarm_ack 的最新一条读，不能看 status。\n-- 车间与测点名走 v_point_dict：point 表本身没有 workshop，终端才挂车间。\nSELECT a.alarm_id,\n       a.terminal_id,\n       a.point_id,\n       d.point_name,\n       d.workshop,\n       a.alarm_type,\n       a.level,\n       a.status,\n       a.trigger_value,\n       d.unit,\n       a.threshold_value,\n       a.occur_time,\n       a.last_time,\n       a.trigger_count,\n       a.backfill,\n       a.message,\n       (k.acked_time IS NOT NULL) AS acknowledged,\n       k.acked_by,\n       k.acked_time\n  FROM alarm a\n  LEFT JOIN v_point_dict d\n         ON d.terminal_id = a.terminal_id AND d.point_id = a.point_id\n  LEFT JOIN LATERAL (\n        SELECT x.acked_by, x.acked_time\n          FROM alarm_ack x\n         WHERE x.alarm_id = a.alarm_id\n         ORDER BY x.acked_time DESC\n         LIMIT 1\n  ) k ON TRUE\n WHERE a.status IN ('ACTIVE','RECOVERED')\n   AND ($1 = '' OR a.terminal_id = $1)\n ORDER BY a.level DESC, a.occur_time DESC\n LIMIT 200",
+        "postgreSQLConfig": "f1a000000000010a",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 600,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000213"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000213",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "格式化清单",
+        "func": "\n// 时间统一给毫秒，前端按本地时区渲染；unit / value 可能为空，\n// 空值保持 null 不补 0——补 0 会被看成「实测到 0」。\nmsg.statusCode = 200;\nmsg.payload = (msg.payload || []).map(r => ({\n    alarmId: Number(r.alarm_id),\n    terminalId: r.terminal_id,\n    pointId: r.point_id,\n    pointName: r.point_name,\n    workshop: r.workshop,\n    alarmType: r.alarm_type,\n    level: Number(r.level),\n    status: r.status,\n    triggerValue: r.trigger_value === null ? null : Number(r.trigger_value),\n    unit: r.unit,\n    thresholdValue: r.threshold_value === null ? null : Number(r.threshold_value),\n    occurTime: new Date(r.occur_time).getTime(),\n    lastTime: new Date(r.last_time).getTime(),\n    triggerCount: Number(r.trigger_count),\n    backfill: r.backfill === true,\n    message: r.message,\n    acknowledged: r.acknowledged === true,\n    ackedBy: r.acked_by || null,\n    ackedTime: r.acked_time ? new Date(r.acked_time).getTime() : null\n}));\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 820,
+        "y": 200,
+        "wires": [
+            [
+                "f1a0000000000219"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000219",
+        "type": "http response",
+        "z": "f1a0000000000201",
+        "name": "响应",
+        "statusCode": "",
+        "headers": {},
+        "x": 1040,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000220",
+        "type": "http in",
+        "z": "f1a0000000000201",
+        "name": "GET /api/health",
+        "url": "/api/health",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 400,
+        "wires": [
+            [
+                "f1a0000000000221"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000221",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "准备健康查询",
+        "func": "msg.payload = null; return msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 400,
+        "wires": [
+            [
+                "f1a0000000000222"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000222",
+        "type": "postgresql",
+        "z": "f1a0000000000201",
+        "name": "健康查询",
+        "query": "\nSELECT now() AS db_time,\n       (SELECT count(*) FROM alarm WHERE status = 'ACTIVE')   AS active_count,\n       (SELECT count(*) FROM alarm WHERE status = 'RECOVERED') AS recovered_count,\n       (SELECT count(*) FROM alarm_ack)                        AS ack_count\n",
+        "postgreSQLConfig": "f1a000000000010a",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 600,
+        "y": 400,
+        "wires": [
+            [
+                "f1a0000000000223"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000223",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "健康结果",
+        "func": "\nconst r = Array.isArray(msg.payload) && msg.payload.length > 0 ? msg.payload[0] : null;\nmsg.statusCode = r ? 200 : 500;\nmsg.payload = {\n    service: \"node-red\",\n    database: r ? \"ok\" : \"unreachable\",\n    dbTime: r ? new Date(r.db_time).getTime() : null,\n    activeAlarmCount: r ? Number(r.active_count) : null,\n    recoveredAlarmCount: r ? Number(r.recovered_count) : null,\n    ackCount: r ? Number(r.ack_count) : null\n};\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 820,
+        "y": 400,
+        "wires": [
+            [
+                "f1a0000000000229"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000229",
+        "type": "http response",
+        "z": "f1a0000000000201",
+        "name": "响应",
+        "statusCode": "",
+        "headers": {},
+        "x": 1040,
+        "y": 400,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000227",
+        "type": "catch",
+        "z": "f1a0000000000201",
+        "name": "查询异常",
+        "scope": null,
+        "uncaught": true,
+        "x": 160,
+        "y": 600,
+        "wires": [
+            [
+                "f1a0000000000228"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000228",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "查询异常处理",
+        "func": "\n// 一个页签里两个查询入口，异常要回到各自的响应节点：\n// 按请求路径分流，否则 /api/health 出错会写到活动告警的响应上。\nconst detail = (msg.error && msg.error.message) ? msg.error.message : String(msg.error);\nnode.error(\"写视图查询失败：\" + detail);\nif (!msg.res) {\n    return [null, null];\n}\nmsg.statusCode = 500;\nmsg.payload = { error: \"查询失败\", detail: detail };\nconst url = (msg.req && msg.req.url) || \"\";\nreturn url.indexOf(\"/api/health\") === 0 ? [null, msg] : [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 600,
+        "wires": [
+            [
+                "f1a0000000000219"
+            ],
+            [
+                "f1a0000000000229"
+            ]
+        ]
+    },
+    {
+        "id": "f1a000000000010a",
+        "type": "postgreSQLConfig",
+        "z": "f1a0000000000101",
+        "name": "monitor（workshop_dashboard）",
+        "host": "PG_HOST",
+        "hostFieldType": "env",
+        "port": "PG_PORT",
+        "portFieldType": "env",
+        "database": "PG_DATABASE",
+        "databaseFieldType": "env",
+        "ssl": "false",
+        "sslFieldType": "bool",
+        "applicationName": "node-red-dashboard",
+        "applicationNameType": "str",
+        "max": 5,
+        "maxFieldType": "num",
+        "idle": 1000,
+        "idleFieldType": "num",
+        "connectionTimeout": 5000,
+        "connectionTimeoutFieldType": "num",
+        "userFieldType": "env",
+        "userEnv": "PG_DASHBOARD_USER",
+        "passwordFieldType": "env",
+        "passwordEnv": "PG_DASHBOARD_PASSWORD"
+    },
+    {
+        "id": "f1a0000000000301",
+        "type": "ui-base",
+        "z": "f1a0000000000201",
+        "name": "车间操作台",
+        "path": "/dashboard",
+        "appIcon": "",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "headerContent": "page",
+        "navigationStyle": "default",
+        "titleBarStyle": "default",
+        "showReconnectNotification": true,
+        "notificationDisplayTime": 3,
+        "showDisconnectNotification": true,
+        "allowInstall": false,
+        "x": 160,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000302",
+        "type": "ui-theme",
+        "z": "f1a0000000000201",
+        "name": "默认主题",
+        "colors": {
+            "surface": "#fcfcfd",
+            "primary": "#0d74ce",
+            "bgPage": "#f9f9fb",
+            "groupBg": "#ffffff",
+            "groupOutline": "#d9d9e0"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "4px",
+            "widgetGap": "12px"
+        },
+        "x": 160,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000303",
+        "type": "ui-page",
+        "z": "f1a0000000000201",
+        "name": "操作台",
+        "ui": "f1a0000000000301",
+        "path": "/ops",
+        "icon": "home",
+        "layout": "grid",
+        "theme": "f1a0000000000302",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": 0,
+                "cols": 3
+            },
+            {
+                "name": "Tablet",
+                "px": 576,
+                "cols": 6
+            },
+            {
+                "name": "Small Desktop",
+                "px": 768,
+                "cols": 9
+            },
+            {
+                "name": "Desktop",
+                "px": 1024,
+                "cols": 12
+            }
+        ],
+        "tabs": [],
+        "order": 0,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "x": 160,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000311",
+        "type": "ui-group",
+        "z": "f1a0000000000201",
+        "name": "工况切换",
+        "page": "f1a0000000000303",
+        "width": 6,
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default",
+        "tab": "",
+        "x": 400,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000312",
+        "type": "ui-group",
+        "z": "f1a0000000000201",
+        "name": "活动告警与确认",
+        "page": "f1a0000000000303",
+        "width": 12,
+        "height": 1,
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default",
+        "tab": "",
+        "x": 400,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000313",
+        "type": "ui-group",
+        "z": "f1a0000000000201",
+        "name": "健康与跳转",
+        "page": "f1a0000000000303",
+        "width": 6,
+        "height": 1,
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default",
+        "tab": "",
+        "x": 400,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "f1a0000000000320",
+        "type": "ui-button",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000311",
+        "name": "切到正常工况",
+        "label": "切到正常工况",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "normal",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "str",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 400,
+        "y": 460,
+        "wires": [
+            [
+                "f1a0000000000330"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000330",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "场景 → normal",
+        "func": "\n// 场景是演示前置动作：一次点下去要把 5 台终端全切过去。\n// 地址来自环境变量，不写死主机名——模拟器跑在宿主机上，容器里的 127.0.0.1 不是它。\nconst name = String(msg.payload);\nmsg.method = \"POST\";\nmsg.url = (env.get(\"SIM_URL\") || \"\") + \"/api/v1/scene/\" + encodeURIComponent(name);\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {};\nmsg.requestTimeout = 5000;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 460,
+        "wires": [
+            [
+                "f1a0000000000340"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000340",
+        "type": "http request",
+        "z": "f1a0000000000201",
+        "name": "切换 normal",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "none",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 840,
+        "y": 460,
+        "wires": [
+            [
+                "f1a0000000000350",
+                "f1a0000000000351"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000321",
+        "type": "ui-button",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000311",
+        "name": "切到越限工况",
+        "label": "切到越限工况",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "alarm",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "str",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 400,
+        "y": 500,
+        "wires": [
+            [
+                "f1a0000000000331"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000331",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "场景 → alarm",
+        "func": "\n// 场景是演示前置动作：一次点下去要把 5 台终端全切过去。\n// 地址来自环境变量，不写死主机名——模拟器跑在宿主机上，容器里的 127.0.0.1 不是它。\nconst name = String(msg.payload);\nmsg.method = \"POST\";\nmsg.url = (env.get(\"SIM_URL\") || \"\") + \"/api/v1/scene/\" + encodeURIComponent(name);\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {};\nmsg.requestTimeout = 5000;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 500,
+        "wires": [
+            [
+                "f1a0000000000341"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000341",
+        "type": "http request",
+        "z": "f1a0000000000201",
+        "name": "切换 alarm",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "none",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 840,
+        "y": 500,
+        "wires": [
+            [
+                "f1a0000000000350",
+                "f1a0000000000351"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000322",
+        "type": "ui-button",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000311",
+        "name": "切到安全工况",
+        "label": "切到安全工况",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "safety",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "str",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 400,
+        "y": 540,
+        "wires": [
+            [
+                "f1a0000000000332"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000332",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "场景 → safety",
+        "func": "\n// 场景是演示前置动作：一次点下去要把 5 台终端全切过去。\n// 地址来自环境变量，不写死主机名——模拟器跑在宿主机上，容器里的 127.0.0.1 不是它。\nconst name = String(msg.payload);\nmsg.method = \"POST\";\nmsg.url = (env.get(\"SIM_URL\") || \"\") + \"/api/v1/scene/\" + encodeURIComponent(name);\nmsg.headers = { \"Content-Type\": \"application/json\" };\nmsg.payload = {};\nmsg.requestTimeout = 5000;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 540,
+        "wires": [
+            [
+                "f1a0000000000342"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000342",
+        "type": "http request",
+        "z": "f1a0000000000201",
+        "name": "切换 safety",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "none",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 840,
+        "y": 540,
+        "wires": [
+            [
+                "f1a0000000000350",
+                "f1a0000000000351"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000350",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "场景成功提示",
+        "func": "\nconst scene = (msg.payload && msg.payload.scene) || \"?\";\nconst buses = (msg.payload && msg.payload.buses) || [];\nnode.status({ fill: \"green\", shape: \"dot\", text: \"已切到 \" + scene });\nmsg.payload = { title: \"工况已切换\", message: \"已切到「\" + scene + \"」，影响 \" + buses.length + \" 条总线\", color: \"#0a7d32\" };\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 460,
+        "wires": [
+            [
+                "f1a0000000000352"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000351",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "场景失败提示",
+        "func": "\nconst status = msg.statusCode || 0;\nconst detail = (msg.payload && (msg.payload.detail || msg.payload.error)) || msg.payload || \"\";\nnode.status({ fill: \"red\", shape: \"ring\", text: \"场景切换失败 \" + status });\nmsg.payload = { title: \"工况切换失败\", message: \"HTTP \" + status + \"：\" + detail, color: \"#c00\" };\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 560,
+        "wires": [
+            [
+                "f1a0000000000352"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000352",
+        "type": "ui-notification",
+        "z": "f1a0000000000201",
+        "ui": "f1a0000000000301",
+        "name": "场景结果提示",
+        "position": "top right",
+        "colorDefault": "#0d74ce",
+        "displayTime": "5",
+        "outputs": 1,
+        "x": 1280,
+        "y": 500,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000360",
+        "type": "inject",
+        "z": "f1a0000000000201",
+        "name": "每 5 秒刷新告警",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "1",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 400,
+        "y": 620,
+        "wires": [
+            [
+                "f1a0000000000361"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000361",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "拉取活动告警",
+        "func": "\nmsg.url = env.get(\"SELF_URL\") + \"/api/alarms/active\";\nmsg.method = \"GET\";\nmsg.headers = {};\nmsg.payload = null;\nmsg.requestTimeout = 5000;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 620,
+        "wires": [
+            [
+                "f1a0000000000362"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000362",
+        "type": "http request",
+        "z": "f1a0000000000201",
+        "name": "GET /api/alarms/active",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "none",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 840,
+        "y": 620,
+        "wires": [
+            [
+                "f1a0000000000363"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000363",
+        "type": "function",
+        "z": "f1a0000000000201",
+        "name": "转成表格行",
+        "func": "\n// 表格只放演示现场看得懂的列。已确认的行标出来——确认只写 alarm_ack、\n// 不改 status，所以「是否已确认」不能靠 status 判断。\nconst LEVEL = { 1: \"提示\", 2: \"警告\", 3: \"严重\", 4: \"紧急\" };\nfunction fmt(ms) {\n    const d = new Date(ms);\n    const p = v => String(v).padStart(2, \"0\");\n    return d.getFullYear() + \"-\" + p(d.getMonth() + 1) + \"-\" + p(d.getDate()) + \" \" +\n           p(d.getHours()) + \":\" + p(d.getMinutes()) + \":\" + p(d.getSeconds());\n}\nconst rows = Array.isArray(msg.payload) ? msg.payload : [];\nmsg.payload = rows.map(r => ({\n    \"告警号\": r.alarmId,\n    \"级别\": LEVEL[r.level] || r.level,\n    \"车间\": r.workshop || \"-\",\n    \"测点\": r.pointName || r.pointId,\n    \"触发值\": r.triggerValue === null ? \"-\" : (r.triggerValue + (r.unit ? \" \" + r.unit : \"\")),\n    \"发生时间\": fmt(r.occurTime),\n    \"状态\": r.acknowledged ? (\"已确认 \" + (r.ackedBy || \"\")) : \"待确认\"\n}));\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 620,
+        "wires": [
+            [
+                "f1a0000000000364"
+            ]
+        ]
+    },
+    {
+        "id": "f1a0000000000364",
+        "type": "ui-table",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000312",
+        "name": "活动告警",
+        "label": "活动告警",
+        "order": 0,
+        "width": 12,
+        "height": 8,
+        "maxrows": 20,
+        "passthru": false,
+        "autocols": true,
+        "showSearch": true,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": null,
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 1280,
+        "y": 620,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000370",
+        "type": "ui-template",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000312",
+        "page": "",
+        "ui": "",
+        "name": "确认表单",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "format": "<!--\n  确认表单。直接 fetch 到同源的 /api/ack，不经过 Node-RED 的消息流：\n  表单里有三个字段（alarmId / ackedBy / note），要靠消息流传就得把它们\n  拆成三条消息再拼回去，那是流程层持有跨消息状态，规则不允许。\n\n  结果显示在表单下方，不弹窗：演示时投影上弹窗挡住告警清单很难看。\n-->\n<div style=\"font-family: system-ui, sans-serif; font-size: 14px;\">\n  <div style=\"display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center;\">\n    <label for=\"ack-id\">告警号</label>\n    <input id=\"ack-id\" type=\"number\" min=\"1\" placeholder=\"表格里的 alarmId\"\n           style=\"padding: 6px 8px; border: 1px solid #c7c7cd; border-radius: 4px;\">\n\n    <label for=\"ack-by\">确认人</label>\n    <input id=\"ack-by\" type=\"text\" maxlength=\"64\" placeholder=\"必填，写进 ackedBy\"\n           style=\"padding: 6px 8px; border: 1px solid #c7c7cd; border-radius: 4px;\">\n\n    <label for=\"ack-note\">备注</label>\n    <input id=\"ack-note\" type=\"text\" maxlength=\"500\" placeholder=\"可空\"\n           style=\"padding: 6px 8px; border: 1px solid #c7c7cd; border-radius: 4px;\">\n  </div>\n\n  <button id=\"ack-submit\"\n          style=\"margin-top: 10px; padding: 8px 18px; border: 0; border-radius: 4px;\n                 background: #0d74ce; color: #fff; font-size: 14px; cursor: pointer;\">\n    确认\n  </button>\n\n  <div id=\"ack-result\" style=\"margin-top: 10px; line-height: 1.6;\"></div>\n</div>\n\n<script>\n(function () {\n  const STATUS_TEXT = {\n    ACKED: \"已确认\",\n    ALREADY_ACKED: \"之前已确认过\",\n    NOT_ACKABLE: \"该状态不可确认\",\n    NOT_FOUND: \"告警号不存在\"\n  };\n\n  const btn = document.getElementById(\"ack-submit\");\n  const out = document.getElementById(\"ack-result\");\n\n  function show(text, color) {\n    out.textContent = text;\n    out.style.color = color;\n  }\n\n  btn.addEventListener(\"click\", async function () {\n    const alarmId = Number(document.getElementById(\"ack-id\").value);\n    const ackedBy = document.getElementById(\"ack-by\").value.trim();\n    const note = document.getElementById(\"ack-note\").value.trim();\n\n    if (!Number.isInteger(alarmId) || alarmId <= 0) {\n      show(\"告警号必须填写\", \"#c00\");\n      return;\n    }\n    if (!ackedBy) {\n      show(\"确认人必填\", \"#c00\");\n      return;\n    }\n\n    btn.disabled = true;\n    try {\n      const resp = await fetch(\"/api/ack\", {\n        method: \"POST\",\n        headers: { \"Content-Type\": \"application/json\" },\n        body: JSON.stringify({ alarmId: alarmId, ackedBy: ackedBy, note: note || undefined })\n      });\n      const body = await resp.json();\n      if (!resp.ok) {\n        show(body.error || (\"确认失败，HTTP \" + resp.status), \"#c00\");\n        return;\n      }\n      const line = S.text = (body.results || [])\n        .map(function (r) {\n          const label = STATUS_TEXT[r.status] || r.status;\n          return \"告警 \" + r.alarmId + \"：\" + label +\n                 (r.ackedBy ? \"（\" + r.ackedBy + \"）\" : \"\");\n        })\n        .join(\"；\");\n      show(line || \"已提交\", body.ackedCount > 0 ? \"#0a7d32\" : \"#a15c00\");\n    } catch (err) {\n      show(\"请求失败：\" + err.message, \"#c00\");\n    } finally {\n      btn.disabled = false;\n    }\n  });\n})();\n</script>\n",
+        "storeOutMessages": true,
+        "passthru": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 400,
+        "y": 720,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000371",
+        "type": "ui-template",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000313",
+        "page": "",
+        "ui": "",
+        "name": "健康状态",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "format": "<div style=\"font-family: system-ui, sans-serif; font-size: 14px;\">\n  <div id=\"health-text\" style=\"line-height: 1.9; color: #444;\">读取中…</div>\n</div>\n\n<script>\n(function () {\n  const out = document.getElementById(\"health-text\");\n\n  async function refresh() {\n    try {\n      const resp = await fetch(\"/api/health\");\n      const b = await resp.json();\n      if (resp.ok) {\n        out.innerHTML =\n          \"数据库：\" + (b.database === \"ok\" ? \"正常\" : \"异常\") +\n          \"<br>活动告警：\" + b.activeAlarmCount + \" 条\" +\n          \"<br>已恢复待处理：\" + b.recoveredAlarmCount + \" 条\" +\n          \"<br>累计确认：\" + b.ackCount + \" 条\";\n        out.style.color = \"#0a7d32\";\n      } else {\n        out.textContent = \"健康检查失败：\" + (b.error || (\"HTTP \" + resp.status));\n        out.style.color = \"#c00\";\n      }\n    } catch (err) {\n      out.textContent = \"健康检查失败：\" + err.message;\n      out.style.color = \"#c00\";\n    }\n  }\n\n  refresh();\n  setInterval(refresh, 5000);   // 与读视图的刷新粒度一致\n})();\n</script>\n",
+        "storeOutMessages": true,
+        "passthru": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 400,
+        "y": 800,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1a0000000000372",
+        "type": "ui-template",
+        "z": "f1a0000000000201",
+        "group": "f1a0000000000313",
+        "page": "",
+        "ui": "",
+        "name": "跳转读视图",
+        "order": 0,
+        "width": 0,
+        "height": 0,
+        "format": "<!-- 跳转到读视图。Grafana 的地址来自环境变量，写死在流程里就换不了环境。 -->\n<div style=\"font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.9;\">\n  <div><a id=\"nav-grafana\" href=\"#\" style=\"color: #0d74ce;\">→ 打开读视图（历史曲线 / 能耗 / 告警中心）</a></div>\n  <div><a id=\"nav-sim\" href=\"#\" style=\"color: #0d74ce;\">→ 打开模拟器控制接口文档</a></div>\n  <div style=\"color: #666; margin-top: 6px;\">\n    读视图是只读账号，确认与场景切换只在本页。\n  </div>\n</div>\n\n<script>\n(function () {\n  // 地址由后端注入到 data 属性（环境变量），前端不拼硬编码主机名。\n  document.getElementById(\"nav-grafana\").href = \"{{GRAFANA_URL}}\" || \"#\";\n  document.getElementById(\"nav-sim\").href = \"{{SIM_URL}}\" || \"#\";\n})();\n</script>\n",
+        "storeOutMessages": true,
+        "passthru": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 400,
+        "y": 880,
+        "wires": [
+            []
         ]
     }
 ]

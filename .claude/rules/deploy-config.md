@@ -76,13 +76,24 @@ Grafana 不得授予写权限。写操作只从 Dashboard 一个出口出。
 - 参数校验失败时不写投递日志——没有可信 `notifyId` 做主键，会产生无主记录
 - 失败信息不回传 adapter
 - 不改写 `notifyId`
+- **确认只写 `alarm_ack`，不改 `alarm.status`**：状态机是先恢复（`RECOVERED`）后确认（`ACKED`），
+  在 `ACTIVE` 时确认若改 status，判定段的 `Clear` 再也写不进真实恢复时间（O-18）
+- 工况预设由 `config/scenes.json` 定义、模拟器 `POST /api/v1/scene/{name}` 执行，
+  流程只负责把按钮打过去
 
 **参数校验失败不写日志**是反直觉但正确：这类错误属调用方缺陷，应在 adapter 日志暴露。
 
 `flows.json` 必须在编辑器导出后提交，禁止只在界面修改。
 
-官方镜像不带数据库节点，N-02 写 `notify_log` 靠 `node-red-contrib-postgresql`
-（版本锁在 `deploy/versions.env`，镜像由 `deploy/node-red/Dockerfile` 构建）。
+官方镜像不带数据库节点，也不带任何 UI 插件。两个 contrib 包，版本都锁在 `deploy/versions.env`，
+镜像由 `deploy/node-red/Dockerfile` 构建：
+
+- `node-red-contrib-postgresql` — N-02 写 `notify_log`，N-03/N-04 读写告警
+- `@flowfuse/node-red-dashboard` — N-04 写视图面板，页面在 `/dashboard/ops`
+
+N-03 走 `workshop_dashboard` 连接，N-01/N-02 走 `workshop_notify`：
+「发通知」与「改告警」必须是两个权限。
+
 `deploy/node-red` 整目录挂到容器 `/data`，运行时产物已在 `.gitignore`——
 `git status` 里只该出现 `flows.json` 与 `settings.js`。
 
