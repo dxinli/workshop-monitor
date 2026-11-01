@@ -1,7 +1,8 @@
 # 019 通知接收端 wecom-mock
 
 > 计划任务：M11 前置（复杂度 S）　状态：已完成
-> 交付形态是宿主机 venv，不接 Compose，见「偏差」
+> 交付形态是宿主机 venv，不接 Compose，见「偏差」。**012 已把它改为 Compose `sim`
+> profile 服务，现行形态见 `tasks/012-通知通道对接.md` 与 `sim/wecom-mock/README.md`。**
 
 ## 要建什么
 
@@ -75,6 +76,8 @@ make sim-wecom &
    （见证据）。**`.env.example` 的 `WECOM_WEBHOOK_URL` 仍是 `localhost:8081` 没改**——
    改它会破坏宿主机侧的 `scripts/verify-notify.sh` 口径，而 012 才决定最终指向。
    这一点登记为 O-19（原 O-18，与 014 撞号后改号）。
+   **后续**：012 已补 `Dockerfile` 与 compose `sim` profile 服务，`.env.example` 改指
+   `http://wecom-mock:8081/webhook`，O-19 关闭。本条描述的是 019 当时的形态，不改。
 
 4. **`make check` 与 CI 的 pytest 目标从 `sim/modbus-slave-sim` 扩到 `sim`。**
    两个仿真件各自有测试，只跑一个会让另一个的用例永远不执行。CI 的装依赖命令同时列出

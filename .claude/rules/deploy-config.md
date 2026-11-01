@@ -6,7 +6,9 @@ paths:
 
 # deploy 与 config
 
-单机容器化，4 核 / 8 GB / 50 GB，镜像总体积 ≤ 3 GB。三组 profile：`sim`（模拟器）、`edge`（agent ×5，9101~9105）、`core`（Broker 1883 / adapter 9200 / DB 5432 / Node-RED 1880·1881 / 接收端 8081 / Grafana 3000）。
+单机容器化，4 核 / 8 GB / 50 GB，镜像总体积 ≤ 3 GB。三组 profile：`sim`（模拟器、**通知接收端 8081**）、`edge`（agent ×5，9101~9105）、`core`（Broker 1883 / adapter 9200 / DB 5432 / Node-RED 1880 / Grafana 3000）。
+
+接收端归 `sim` 不归 `core`：它是仿真件（`sim/wecom-mock`），真实通道不存在容器内接收端，挂进 `core` 会把测试替身混进交付拓扑。Node-RED 只有一个 1880（编辑器与 `/api/notify` 共用，4.0.5 已移除 `httpNodePort`，O-17）。
 
 ## Mosquitto
 
