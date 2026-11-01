@@ -48,8 +48,9 @@ go run ./cmd/config-tool seed -out /tmp/02_seed.sql
 set -a; . ./.env; set +a                   # edge-agent 需要 MQTT_BROKER_URL 与 MQTT_<ESN>_PASSWORD
 go run ./cmd/edge-agent    -config config/terminals/ESN-ZX-0001.json   # 队列与序号默认落 var/
 go run ./cmd/edge-agent    -config config/terminals/ESN-ZX-0001.json -ports .pty/agent-ports.json   # 接模拟器
-go run ./cmd/proto-adapter -config config/adapter.toml
-docker compose --profile sim up modbus-slave-sim
+go run ./cmd/proto-adapter -config config/adapter.json
+# sim profile 目前只有通知接收端；从站模拟器仍走 make sim-up（O-13）。
+docker compose --profile sim up -d wecom-mock   # 容器形态，服务名 wecom-mock:8081
 ```
 
 ## Structure
