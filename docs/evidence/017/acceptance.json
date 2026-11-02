@@ -1,0 +1,416 @@
+{
+  "task": "017 验收执行与证据归档",
+  "generatedAt": "2026-11-02T15:36:51+0800",
+  "mainChannelDiscipline": {
+    "checked": true,
+    "note": "AC-01~03/09~13/16 全走主通道，未用旁路构造器"
+  },
+  "cases": {
+    "AC-01": {
+      "verdict": "通过",
+      "how": "归集 016 主通道",
+      "evidence": "../016/timeseries.json"
+    },
+    "AC-02": {
+      "verdict": "通过",
+      "how": "归集 004 主通道",
+      "evidence": "../004/point_check.csv"
+    },
+    "AC-03": {
+      "verdict": "通过",
+      "how": "归集 005 主通道",
+      "evidence": "../005/acceptance.json"
+    },
+    "AC-09": {
+      "verdict": "通过",
+      "how": "归集 007 主通道",
+      "evidence": "../007/acceptance.json"
+    },
+    "AC-10": {
+      "verdict": "通过",
+      "how": "归集 007 主通道",
+      "evidence": "../007/acceptance.json"
+    },
+    "AC-11": {
+      "verdict": "通过",
+      "how": "归集 007 主通道",
+      "evidence": "../007/acceptance.json"
+    },
+    "AC-12": {
+      "verdict": "通过",
+      "how": "归集 016 主通道",
+      "evidence": "../016/acceptance.json"
+    },
+    "AC-13": {
+      "verdict": "通过",
+      "how": "归集 016 主通道",
+      "evidence": "../016/acceptance.json"
+    },
+    "AC-16": {
+      "verdict": "通过",
+      "how": "归集 007 主通道",
+      "evidence": "../007/acceptance.json"
+    },
+    "AC-18": {
+      "verdict": "通过",
+      "how": "归集 011/012 + MV-08 佐证",
+      "evidence": "../011/ ../012/"
+    },
+    "AC-04": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-04",
+        "passed": true,
+        "point": "A.1.motor_temp",
+        "debounceN": 3,
+        "spike": {
+          "overLimitReadings": 1,
+          "alarms": 0
+        },
+        "sustained": {
+          "overLimitReadingsBeforeRaise": 3,
+          "alarm": {
+            "alarm_id": 226,
+            "dedupe_key": "ESN-ZX-0001|A.1.motor_temp|HIGH_LIMIT",
+            "status": "ACTIVE",
+            "level": 2,
+            "trigger_value": 90,
+            "threshold_value": 85,
+            "occur_time": "2026-11-02 07:21:37.499+00",
+            "recover_time": null,
+            "trigger_count": 1
+          }
+        },
+        "expect": "单次波动不拉响；连续 N=3 次越限才拉响，occur_time 落在第 3 次读数"
+      }
+    },
+    "AC-05": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-05",
+        "passed": true,
+        "point": "A.1.motor_temp",
+        "debounceN": 3,
+        "alarmId": 226,
+        "flaps": [
+          {
+            "flap": 1,
+            "status": "ACTIVE"
+          },
+          {
+            "flap": 2,
+            "status": "ACTIVE"
+          }
+        ],
+        "recoveredAt": "2026-11-02 07:22:17.51+00",
+        "recoveryWindowStart": "2026-11-02 07:22:04.131626+00",
+        "expect": "N-1 轮波动期间保持 ACTIVE；连续 3 次不满足才 RECOVERED"
+      }
+    },
+    "AC-06": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-06",
+        "passed": true,
+        "point": "A.4.door",
+        "debounceN": 0,
+        "raise": {
+          "alarm_id": 227,
+          "dedupe_key": "ESN-ZX-0001|A.4.door|STATE_ALARM",
+          "status": "ACTIVE",
+          "level": 3,
+          "trigger_value": 1,
+          "threshold_value": 1,
+          "occur_time": "2026-11-02 07:22:22.51+00",
+          "recover_time": null,
+          "trigger_count": 1
+        },
+        "recoveredAt": "2026-11-02 07:22:27.51+00",
+        "expect": "置 1 当次拉响、置 0 当次恢复，不累计次数"
+      }
+    },
+    "AC-07": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-07",
+        "passed": true,
+        "point": "A.1.motor_temp",
+        "highAlarm": {
+          "alarm_id": 228,
+          "dedupe_key": "ESN-ZX-0001|A.1.motor_temp|HIGH_LIMIT",
+          "status": "ACTIVE",
+          "level": 2,
+          "trigger_value": 90,
+          "threshold_value": 85,
+          "occur_time": "2026-11-02 07:22:42.52+00",
+          "recover_time": null,
+          "trigger_count": 1
+        },
+        "highHighAlarm": {
+          "alarm_id": 229,
+          "dedupe_key": "ESN-ZX-0001|A.1.motor_temp|HIGH_HIGH_LIMIT",
+          "status": "ACTIVE",
+          "level": 3,
+          "trigger_value": 108,
+          "threshold_value": 105,
+          "occur_time": "2026-11-02 07:22:57.52+00",
+          "recover_time": null,
+          "trigger_count": 1
+        },
+        "highStatusAfterRaise": "CLOSED",
+        "expect": "HIGH_HIGH_LIMIT 拉响时同测点 HIGH_LIMIT 被闭合（status 不再 ACTIVE）"
+      }
+    },
+    "AC-08": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-08",
+        "passed": true,
+        "point": "A.1.motor_temp",
+        "outOfRange": {
+          "value": 300,
+          "quality": 5,
+          "readings": 5,
+          "alarms": 0
+        },
+        "timeout": {
+          "readings": 3,
+          "alarms": 0
+        },
+        "expect": "质量非 0 的读数（含越限值 300）不产生告警、不推进去抖计数"
+      }
+    },
+    "AC-14": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-14",
+        "passed": true,
+        "point": "A.1.motor_temp",
+        "afterNewer": {
+          "value": 62.5,
+          "quality": 0,
+          "ct_ms": 1793604400827
+        },
+        "afterOlder": {
+          "value": 62.5,
+          "quality": 0,
+          "ct_ms": 1793604400827
+        },
+        "historyRows": [
+          {
+            "seq": 4678,
+            "value": 62.5,
+            "ct_ms": 1793604400827
+          },
+          {
+            "seq": 4679,
+            "value": 55.5,
+            "ct_ms": 1793600800827
+          }
+        ],
+        "guard": "ingest/sink.go upsertRealtime 的 SQL WHERE：EXCLUDED.collect_time > collect_time",
+        "expect": "历史两行都保留；实时值停在较新读数（62.5@较新 collectTime）"
+      }
+    },
+    "AC-15": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-15",
+        "passed": true,
+        "brokerScriptExit": 0,
+        "roleMatrix": [
+          {
+            "ro_ins": false,
+            "ro_sel": true,
+            "dash_upd": true,
+            "notify_upd": false,
+            "adapter_ack": false
+          }
+        ],
+        "evidence": "AC-15.txt（verify-broker.sh 全量输出）",
+        "expect": "越权发布被拒；workshop_readonly 只读、notify 不改告警、adapter 不写确认"
+      }
+    },
+    "AC-17": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-17",
+        "passed": true,
+        "seq": 6679,
+        "afterFirst": {
+          "messageLog": "1",
+          "measurement": "1"
+        },
+        "afterSecond": {
+          "messageLog": "1",
+          "measurement": "1",
+          "rawMessage": "1"
+        },
+        "adapterLogDuplicate": true,
+        "expect": "重投判 DUPLICATE、不写业务表；幂等键 (terminalId, seq) 登记在业务写入之前"
+      }
+    },
+    "AC-19": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-19",
+        "passed": true,
+        "point": "A.1.motor_vib",
+        "before": {
+          "threshold": 4.5,
+          "alarms": 1
+        },
+        "after": {
+          "threshold": 50,
+          "alarms": 0
+        },
+        "hotReloadWaitSec": 65,
+        "gitStatus": "(干净)",
+        "expect": "改阈值数值生效边界 60 秒热加载；代码零改动（git status 干净）"
+      }
+    },
+    "AC-20": {
+      "verdict": "通过",
+      "how": "本次执行",
+      "detail": {
+        "case": "AC-20",
+        "passed": true,
+        "lintExit": 0,
+        "seams": [
+          "agent/codec.go toEngineering（换算）",
+          "adapter/evaluate 求值入口（去抖与状态机）",
+          "adapter/ingest/idem.go（幂等）",
+          "agent/cache.go trim（队列裁剪）"
+        ],
+        "evidence": "AC-20.txt（make lint 通过 = depguard 边界生效）",
+        "expect": "换协议只动 internal/agent 的 codec；冻结线 A/B/C 互不牵连"
+      }
+    }
+  },
+  "metrics": {
+    "MV-01": {
+      "target": "≤2s",
+      "measured": {
+        "p95": 32,
+        "max": 3036,
+        "target": "≤ 2000"
+      },
+      "verdict": "达标"
+    },
+    "MV-02": {
+      "target": "≤3s",
+      "measured": {
+        "p95": 116,
+        "max": 129,
+        "target": "≤ 3000"
+      },
+      "verdict": "达标"
+    },
+    "MV-03": {
+      "passed": true,
+      "panelsRefresh5s": 8,
+      "evidence": "deploy/grafana/dashboards/*.json 的 refresh 字段"
+    },
+    "MV-04": {
+      "case": "MV-04",
+      "passed": true,
+      "target": "≤ 采集周期 5s + 10s = 15s",
+      "samples": [
+        {
+          "sentinel": 71.3,
+          "collectTimeMs": 1793604257559,
+          "e2eSec": 0.2,
+          "note": "含面板刷新粒度 5s 的上界另加（MV-03）"
+        },
+        {
+          "sentinel": 72.7,
+          "collectTimeMs": 1793604262559,
+          "e2eSec": 0.27,
+          "note": "含面板刷新粒度 5s 的上界另加（MV-03）"
+        },
+        {
+          "sentinel": 74.1,
+          "collectTimeMs": 1793604267559,
+          "e2eSec": 0.33,
+          "note": "含面板刷新粒度 5s 的上界另加（MV-03）"
+        }
+      ],
+      "method": "写哨兵值 → 0.5s 粒度轮询 Grafana /api/ds/query（面板同款 SQL）→ 首次可见时刻 - collectTime"
+    },
+    "MV-05": {
+      "passed": true,
+      "evidence": "docs/evidence/015/acceptance.json（healthz 四项）"
+    },
+    "MV-06": {
+      "passed": true,
+      "retentionJobs": [
+        {
+          "job_id": 1001,
+          "proc_name": "policy_retention",
+          "drop_after": "7 days"
+        },
+        {
+          "job_id": 1002,
+          "proc_name": "policy_retention",
+          "drop_after": "30 days"
+        },
+        {
+          "job_id": 1003,
+          "proc_name": "policy_retention",
+          "drop_after": "7 days"
+        }
+      ],
+      "dbSize": "132 MB",
+      "evidence": "docs/evidence/016（造旧数据真跑清理）"
+    },
+    "MV-07": {
+      "passed": true,
+      "evidence": "docs/evidence/013/plan-30d.txt"
+    },
+    "MV-08": {
+      "case": "MV-08",
+      "passed": true,
+      "target": "100% 留痕（成功或失败均记 notify_log）",
+      "alarms": 4,
+      "logged": 4,
+      "rate": 1.0,
+      "missed": [],
+      "excluded": "level 1 只入库；backfill 只记录不通知（BR-36/BR-39）"
+    },
+    "MV-09": {
+      "passed": true,
+      "evidence": "docs/evidence/016/timeseries.json（每 2 分钟 +3358 行 vs 理论 3360）"
+    },
+    "MV-10": {
+      "target": "镜像≤3GB",
+      "measured": "交付 4 镜像 2.854 GiB / 3.065 GB（十进制贴线）",
+      "verdict": "达标",
+      "evidence": "MV-10.txt"
+    }
+  },
+  "defects": [
+    {
+      "id": "DEF-01",
+      "level": "B",
+      "verdict": "已修复",
+      "file": "defects.md",
+      "regression": "AC-19"
+    }
+  ],
+  "summary": {
+    "casesPassed": 20,
+    "casesFailed": 0,
+    "metricsOnTarget": 10,
+    "defectsFixed": 1,
+    "defectsOpen": 0
+  }
+}

@@ -1,0 +1,14 @@
+TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE
+Images          15        11        7.38GB    18.58MB (0%)
+Containers      11        7         2.328MB   2.326MB (99%)
+Local Volumes   42        8         263.2MB   688.7kB (0%)
+Build Cache     35        0         212.8MB   24.52kB
+
+--- 内存 ---
+deploy-node-red-1 66.57MiB / 19.53GiB
+deploy-wecom-mock-1 37.36MiB / 19.53GiB
+deploy-grafana-1 78.1MiB / 19.53GiB
+deploy-mosquitto-1 2.422MiB / 19.53GiB
+deploy-timescaledb-1 159MiB / 19.53GiB
+rabbitmq 158.7MiB / 19.53GiB
+mysql8 681.7MiB / 19.53GiB

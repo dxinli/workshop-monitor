@@ -1,0 +1,23 @@
+$ scripts/verify-broker.sh
+验收：
+[grid] 启动临时 broker
+  ok   [grid] 接入服务订阅到全部 15 条上行
+  ok   [grid] 终端 1 发布终端 2 的主题被拒
+  ok   [grid] 终端 1 发布终端 2 的状态主题被拒
+  ok   [grid] 接入服务不得发布上行
+  ok   [grid] 越权发布的消息未进入主题
+  ok   [grid] 异常断开发出 OFFLINE
+  ok   [grid] 匿名连接被拒
+[internal] 启动临时 broker
+  ok   [internal] 接入服务订阅到全部 15 条上行
+  ok   [internal] 终端 1 发布终端 2 的主题被拒
+  ok   [internal] 终端 1 发布终端 2 的状态主题被拒
+  ok   [internal] 接入服务不得发布上行
+  ok   [internal] 越权发布的消息未进入主题
+  ok   [internal] 异常断开发出 OFFLINE
+  ok   [internal] 匿名连接被拒
+  ok   两套方案的账号集合一致
+  ok   口令文件与 ACL 账号一一对应
+  ok   口令文件已被 .gitignore 忽略
+  ok   口令文件未进版本库
+验收通过

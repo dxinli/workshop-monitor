@@ -1,0 +1,19 @@
+$ make lint
+lint 版本：golangci-lint has version 2.15.0 built with go1.27.3 from (unknown, modified: ?, mod sum: "h1:w94zf8HAYI7hm3164kwKsvZRuqXvY+YxeFoTbu1OLg8=") on (unknown)
+/home/sakura/code/go/bin/golangci-lint run ./...
+0 issues.
+
+--- depguard 规则 ---
+    depguard:
+      rules:
+        # 三条边界，对应 CLAUDE.md 的 Must Follow：
+        #   internal/agent ↔ internal/adapter 不得互相 import
+        #   ingest ↔ evaluate 不得互相 import（唯一连接是有界 channel）
+        #   sim 不 import internal；cmd 不 import sim
+        agent-no-adapter:
+          files:
+            - "internal/agent/**"
+            - "**/internal/agent/**"
+            - "cmd/edge-agent/**"
+            - "**/cmd/edge-agent/**"
+          deny:
