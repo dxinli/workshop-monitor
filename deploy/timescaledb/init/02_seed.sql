@@ -7,10 +7,13 @@ SET search_path TO monitor, public;
 BEGIN;
 
 DELETE FROM threshold;
-DELETE FROM terminal;
+DELETE FROM bus;
+
+DELETE FROM terminal WHERE terminal_id NOT IN ('ESN-ZX-0001', 'ESN-ZX-0002', 'ESN-ZX-0003', 'ESN-ZX-0004', 'ESN-ZX-0005');
 
 INSERT INTO terminal (terminal_id, esn, workshop, line, enabled, config_version)
-  VALUES ('ESN-ZX-0001', 'ESN-ZX-0001', '一号车间', '机加工产线', TRUE, '1.0.0');
+  VALUES ('ESN-ZX-0001', 'ESN-ZX-0001', '一号车间', '机加工产线', TRUE, '1.0.0')
+  ON CONFLICT (terminal_id) DO UPDATE SET esn = EXCLUDED.esn, workshop = EXCLUDED.workshop, line = EXCLUDED.line, enabled = EXCLUDED.enabled, config_version = EXCLUDED.config_version;
 
 INSERT INTO bus (terminal_id, bus_id, port, baud_rate, data_bits, stop_bits, parity, timeout_ms, retry_count, inter_frame_ms)
   VALUES ('ESN-ZX-0001', 'A', '/dev/ttyV0', 9600, 8, 1, 'N', 1000, 2, 4);
@@ -107,7 +110,8 @@ INSERT INTO point (terminal_id, bus_id, slave_addr, point_code, point_name, si_t
   ('ESN-ZX-0001', 'B', 5, 'air_pressure', '压缩空气压力', 'YC', 'uint16', 0, 1, 0.001, 0, 'MPa', 0, 1.6);
 
 INSERT INTO terminal (terminal_id, esn, workshop, line, enabled, config_version)
-  VALUES ('ESN-ZX-0002', 'ESN-ZX-0002', '二号车间', '装配产线', TRUE, '1.0.0');
+  VALUES ('ESN-ZX-0002', 'ESN-ZX-0002', '二号车间', '装配产线', TRUE, '1.0.0')
+  ON CONFLICT (terminal_id) DO UPDATE SET esn = EXCLUDED.esn, workshop = EXCLUDED.workshop, line = EXCLUDED.line, enabled = EXCLUDED.enabled, config_version = EXCLUDED.config_version;
 
 INSERT INTO bus (terminal_id, bus_id, port, baud_rate, data_bits, stop_bits, parity, timeout_ms, retry_count, inter_frame_ms)
   VALUES ('ESN-ZX-0002', 'A', '/dev/ttyV0', 9600, 8, 1, 'N', 1000, 2, 4);
@@ -204,7 +208,8 @@ INSERT INTO point (terminal_id, bus_id, slave_addr, point_code, point_name, si_t
   ('ESN-ZX-0002', 'B', 5, 'air_pressure', '压缩空气压力', 'YC', 'uint16', 0, 1, 0.001, 0, 'MPa', 0, 1.6);
 
 INSERT INTO terminal (terminal_id, esn, workshop, line, enabled, config_version)
-  VALUES ('ESN-ZX-0003', 'ESN-ZX-0003', '三号车间', '焊接产线', TRUE, '1.0.0');
+  VALUES ('ESN-ZX-0003', 'ESN-ZX-0003', '三号车间', '焊接产线', TRUE, '1.0.0')
+  ON CONFLICT (terminal_id) DO UPDATE SET esn = EXCLUDED.esn, workshop = EXCLUDED.workshop, line = EXCLUDED.line, enabled = EXCLUDED.enabled, config_version = EXCLUDED.config_version;
 
 INSERT INTO bus (terminal_id, bus_id, port, baud_rate, data_bits, stop_bits, parity, timeout_ms, retry_count, inter_frame_ms)
   VALUES ('ESN-ZX-0003', 'A', '/dev/ttyV0', 9600, 8, 1, 'N', 1000, 2, 4);
@@ -301,7 +306,8 @@ INSERT INTO point (terminal_id, bus_id, slave_addr, point_code, point_name, si_t
   ('ESN-ZX-0003', 'B', 5, 'air_pressure', '压缩空气压力', 'YC', 'uint16', 0, 1, 0.001, 0, 'MPa', 0, 1.6);
 
 INSERT INTO terminal (terminal_id, esn, workshop, line, enabled, config_version)
-  VALUES ('ESN-ZX-0004', 'ESN-ZX-0004', '四号车间', '涂装产线', TRUE, '1.0.0');
+  VALUES ('ESN-ZX-0004', 'ESN-ZX-0004', '四号车间', '涂装产线', TRUE, '1.0.0')
+  ON CONFLICT (terminal_id) DO UPDATE SET esn = EXCLUDED.esn, workshop = EXCLUDED.workshop, line = EXCLUDED.line, enabled = EXCLUDED.enabled, config_version = EXCLUDED.config_version;
 
 INSERT INTO bus (terminal_id, bus_id, port, baud_rate, data_bits, stop_bits, parity, timeout_ms, retry_count, inter_frame_ms)
   VALUES ('ESN-ZX-0004', 'A', '/dev/ttyV0', 9600, 8, 1, 'N', 1000, 2, 4);
@@ -398,7 +404,8 @@ INSERT INTO point (terminal_id, bus_id, slave_addr, point_code, point_name, si_t
   ('ESN-ZX-0004', 'B', 5, 'air_pressure', '压缩空气压力', 'YC', 'uint16', 0, 1, 0.001, 0, 'MPa', 0, 1.6);
 
 INSERT INTO terminal (terminal_id, esn, workshop, line, enabled, config_version)
-  VALUES ('ESN-ZX-0005', 'ESN-ZX-0005', '五号车间', '总装产线', TRUE, '1.0.0');
+  VALUES ('ESN-ZX-0005', 'ESN-ZX-0005', '五号车间', '总装产线', TRUE, '1.0.0')
+  ON CONFLICT (terminal_id) DO UPDATE SET esn = EXCLUDED.esn, workshop = EXCLUDED.workshop, line = EXCLUDED.line, enabled = EXCLUDED.enabled, config_version = EXCLUDED.config_version;
 
 INSERT INTO bus (terminal_id, bus_id, port, baud_rate, data_bits, stop_bits, parity, timeout_ms, retry_count, inter_frame_ms)
   VALUES ('ESN-ZX-0005', 'A', '/dev/ttyV0', 9600, 8, 1, 'N', 1000, 2, 4);

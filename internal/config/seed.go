@@ -10,8 +10,14 @@ import (
 
 // WriteSeedSQL 生成可导入的 02_seed.sql。
 //
-// 配置域是投影：脚本先清空 terminal（级联到 bus/device/point）与 threshold，
+// 配置域是投影：脚本清空 threshold 与 bus（级联到 device/point），
+// terminal 对配置里仍存在的行走 upsert、只删配置里已消失的行，
 // 再按配置文件重建，因此重复导入得到同一结果。测量、报文、告警等业务表不动。
+//
+// 刻意不做 DELETE FROM terminal：terminal_state（运行态）外键引用 terminal
+// 且无级联，活库上重播种会被外键挡死——删了重建等于要求每次改配置前先丢运行态。
+// 配置里已删除的终端仍会尝试删除；若它还有运行态，外键报错是预期行为，
+// 由现场先决定状态怎么处置，不静默连状态一起删。
 //
 // 只生成 SQL 文本，不连数据库——导入由 make seed 交给 psql。
 func WriteSeedSQL(w io.Writer, terminals []*Terminal, th *ThresholdFile) error {
@@ -25,7 +31,8 @@ func WriteSeedSQL(w io.Writer, terminals []*Terminal, th *ThresholdFile) error {
 	b.WriteString("SET search_path TO monitor, public;\n\n")
 	b.WriteString("BEGIN;\n\n")
 	b.WriteString("DELETE FROM threshold;\n")
-	b.WriteString("DELETE FROM terminal;\n\n")
+	b.WriteString("DELETE FROM bus;\n\n") // 级联到 device / point，不动 terminal
+	writeStaleTerminalDelete(&b, ordered)
 
 	for _, t := range ordered {
 		writeTerminal(&b, t)
@@ -51,10 +58,28 @@ func WriteSeedSQL(w io.Writer, terminals []*Terminal, th *ThresholdFile) error {
 	return nil
 }
 
+func writeStaleTerminalDelete(b *strings.Builder, ordered []*Terminal) {
+	if len(ordered) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(ordered))
+	for _, t := range ordered {
+		ids = append(ids, q(t.TerminalID))
+	}
+	// 只删配置里已消失的终端；仍有 terminal_state 引用时外键会报错，
+	// 那是「先处置运行态再删配置」的信号，不静默连状态一起删。
+	fmt.Fprintf(b, "DELETE FROM terminal WHERE terminal_id NOT IN (%s);\n\n",
+		strings.Join(ids, ", "))
+}
+
 func writeTerminal(b *strings.Builder, t *Terminal) {
+	// upsert 而非删了重建：terminal_state 外键引用 terminal 且无级联。
 	fmt.Fprintf(b, "INSERT INTO terminal (terminal_id, esn, workshop, line, enabled, config_version)\n")
-	fmt.Fprintf(b, "  VALUES (%s, %s, %s, %s, TRUE, %s);\n\n",
+	fmt.Fprintf(b, "  VALUES (%s, %s, %s, %s, TRUE, %s)\n",
 		q(t.TerminalID), q(t.TerminalID), q(t.Workshop), q(t.Line), q(t.ConfigVersion))
+	fmt.Fprintf(b, "  ON CONFLICT (terminal_id) DO UPDATE SET esn = EXCLUDED.esn, "+
+		"workshop = EXCLUDED.workshop, line = EXCLUDED.line, "+
+		"enabled = EXCLUDED.enabled, config_version = EXCLUDED.config_version;\n\n")
 
 	for _, bus := range t.Buses {
 		fmt.Fprintf(b, "INSERT INTO bus (terminal_id, bus_id, port, baud_rate, data_bits, stop_bits, "+
