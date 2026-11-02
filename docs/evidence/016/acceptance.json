@@ -1,0 +1,46 @@
+{
+  "task": "016 试运行与历史检验",
+  "generatedAt": "2026-11-02T10:03:54+0800",
+  "durationMin": 120.0,
+  "samples": 61,
+  "terminals": [
+    "ESN-ZX-0001",
+    "ESN-ZX-0002",
+    "ESN-ZX-0003",
+    "ESN-ZX-0004",
+    "ESN-ZX-0005"
+  ],
+  "passed": true,
+  "cases": [
+    {
+      "name": "5 台终端连续运行，采集无中断、队列深度回落",
+      "passed": true,
+      "detail": "采样 61 次，异常退出 0，健康异常 0，末次队列深度 {'ESN-ZX-0001': 0, 'ESN-ZX-0002': 0, 'ESN-ZX-0003': 0, 'ESN-ZX-0004': 0, 'ESN-ZX-0005': 0}"
+    },
+    {
+      "name": "抽样核对实时值与历史曲线，与模拟器设定值一致",
+      "passed": true,
+      "detail": "写入原始 625→期望 62.5；实时值 62.5，历史最新 62.5；期间新增 280 行"
+    },
+    {
+      "name": "补传验证：断上行 5 分钟，历史连续且采集时间为原时刻",
+      "passed": true,
+      "detail": "断网前 223860 行 → 补传后 234080 行；断网窗口内 8540 行（期望 8400，60 周期）；补传 8820 行，滞后 <1 秒的 0 行，平均滞后 165 秒（判据 ≥30 秒）"
+    },
+    {
+      "name": "measurement_1m 聚合与明细手算一致",
+      "passed": true,
+      "detail": "比对 5 行（口径 quality=0），全部一致"
+    },
+    {
+      "name": "保留策略生效：超期明细与聚合被真清理",
+      "passed": true,
+      "detail": "聚合标记行 1 → 30 天策略后 0；明细标记行 10 → 7 天策略后 0；job：1001(7 days) / 1002(30 days)"
+    },
+    {
+      "name": "查询使用采集时间轴，非接收时间",
+      "passed": true,
+      "detail": "measurement 的 collect_time/receive_time 分列；业务视图误用 receive_time 的：无；按到达顺序、豁免：['v_raw_recent']"
+    }
+  ]
+}

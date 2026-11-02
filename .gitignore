@@ -1,6 +1,7 @@
 bin/
 var/
 .pty/
+.venv-sim
 .venv-sim/
 *.exe
 .env

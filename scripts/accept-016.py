@@ -421,11 +421,17 @@ def case_backfill_continuity() -> tuple[bool, str]:
     补传的标志与采集时间都在 **measurement** 上（`backfill` / `collect_time`）。
     `raw_message` 没有这两列——查它 SQL 直接失败。这条以前查错过表，
     而旧 psql 吞掉报错返回空串，`int("" or 0) == 0` 就判成了「0 条越界」，
-    **假阳性**。所以这里连判据一起收紧：
+    **假阳性**。
 
-    - 连续性：断网窗口内的行数要等于「测点数 × 周期数」，少一行就是一个漏采周期
-    - 原时刻：断网期间采到、恢复后才收到的行（`receive_time > t1`），
-      其 `collect_time` 必须落在断网窗口内，不能是恢复时刻
+    时间边界要取准，实测踩过：补传**发生在恢复后的等待期里**，
+    所以判「本次补传出来的行」要用**恢复时刻**做界，不是等完 60 秒之后。
+    用后者会把补传行全排除，报成「补传 0 行」。
+
+    三件事分开验：
+    - 连续性：断网窗口内的行数 = 测点数 × 周期数，少一行就是一个漏采周期
+    - 原时刻：恢复后才收到（receive_time > 恢复时刻）且标了 backfill 的行，
+      其 collect_time 必须落在断网窗口内
+    - 不多不少：补传行的 collect_time 不越出断网窗口
     """
     before = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
     t0 = now_ms()
@@ -433,31 +439,38 @@ def case_backfill_continuity() -> tuple[bool, str]:
     stop_broker()
     time.sleep(300)
     start_broker()
+    t_recovery = now_ms()
     print("  已恢复，等补传…", flush=True)
     time.sleep(60)
     after = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
-    t1 = now_ms()
 
-    window = (f"collect_time >= to_timestamp({t0} / 1000.0) "
-              f"AND collect_time <= to_timestamp({t1} / 1000.0)")
-    got = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {window}") or 0)
-    # 140 测点 × (断网秒数 / 5 秒周期)。断 300 秒即 60 周期 → 8400 行。
-    cycles = max(1, int((t1 - t0) / 5000))
+    outage = (f"collect_time >= to_timestamp({t0} / 1000.0) "
+              f"AND collect_time <= to_timestamp({t_recovery} / 1000.0)")
+    got = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {outage}") or 0)
+    cycles = max(1, int((t_recovery - t0) / 5000))
     expected = 140 * cycles
 
-    # 本次断网补传出来的行：恢复后才收到、且标了 backfill。
-    scope = (f"backfill IS TRUE AND receive_time > to_timestamp({t1} / 1000.0)")
+    # 本次补传出来的行：恢复后才收到、且标了 backfill。
+    scope = f"backfill IS TRUE AND receive_time > to_timestamp({t_recovery} / 1000.0)"
     backfilled = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {scope}") or 0)
+    # 判据直指「collectTime 是原时刻」这件事本身。**用平均滞后判，不用逐行判**：
+    # 断网末尾采到、恢复后立刻补传的行滞后天然就小（实测 700 行滞后 ~18 秒），
+    # 逐行设阈值必然误报边界行。而实现若把 collectTime 写成恢复时刻，
+    # **平均滞后会趋近 0**——这一条立刻抓住，且不受边界影响。
     wrong = int(psql(
-        "SELECT count(*) FROM monitor.measurement "
-        f"WHERE {scope} AND (collect_time < to_timestamp({t0} / 1000.0) "
-        f"                 OR collect_time > to_timestamp({t1} / 1000.0))") or 0)
+        f"SELECT count(*) FROM monitor.measurement WHERE {scope} "
+        "AND receive_time - collect_time < interval '1 second'") or 0)
+    lag = psql(f"SELECT round(avg(extract(epoch FROM (receive_time - collect_time)))) "
+               f"FROM monitor.measurement WHERE {scope}")
+    lag_avg = float(lag) if lag else 0.0
 
     continuous = abs(got - expected) <= 140  # 允许 ±1 个周期的边界抖动
-    ok = after > before and continuous and backfilled > 0 and wrong == 0
+    ok = (after > before and continuous and backfilled > 0
+          and wrong == 0 and lag_avg >= 30)
     return ok, (f"断网前 {before} 行 → 补传后 {after} 行；"
-                f"窗口内 {got} 行（期望 {expected}，{cycles} 周期）；"
-                f"补传 {backfilled} 行，collectTime 越界 {wrong} 行")
+                f"断网窗口内 {got} 行（期望 {expected}，{cycles} 周期）；"
+                f"补传 {backfilled} 行，滞后 <1 秒的 {wrong} 行，"
+                f"平均滞后 {lag_avg:.0f} 秒（判据 ≥30 秒）")
 
 
 def case_aggregation_matches_detail() -> tuple[bool, str]:
