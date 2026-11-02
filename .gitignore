@@ -1,6 +1,7 @@
 bin/
 var/
 .pty/
+.venv-sim
 .venv-sim/
 *.exe
 .env
@@ -13,6 +14,9 @@ __pycache__/
 dist/
 coverage.out
 deploy/mosquitto/passwd
+
+# 验收脚本的运行时暂存（cache db、seq 文件），跑完自清理，不是证据
+docs/evidence/**/_tmp/
 
 # Node-RED 的运行时产物：deploy/node-red 整目录挂到容器 /data，
 # 版本库里只留 flows.json 与 settings.js。
