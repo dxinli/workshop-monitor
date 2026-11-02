@@ -1,0 +1,76 @@
+{
+  "AC-15": {
+    "case": "AC-15",
+    "passed": true,
+    "brokerScriptExit": 0,
+    "roleMatrix": [
+      {
+        "ro_ins": false,
+        "ro_sel": true,
+        "dash_upd": true,
+        "notify_upd": false,
+        "adapter_ack": false
+      }
+    ],
+    "evidence": "AC-15.txt（verify-broker.sh 全量输出）",
+    "expect": "越权发布被拒；workshop_readonly 只读、notify 不改告警、adapter 不写确认"
+  },
+  "AC-20": {
+    "case": "AC-20",
+    "passed": true,
+    "lintExit": 0,
+    "seams": [
+      "agent/codec.go toEngineering（换算）",
+      "adapter/evaluate 求值入口（去抖与状态机）",
+      "adapter/ingest/idem.go（幂等）",
+      "agent/cache.go trim（队列裁剪）"
+    ],
+    "evidence": "AC-20.txt（make lint 通过 = depguard 边界生效）",
+    "expect": "换协议只动 internal/agent 的 codec；冻结线 A/B/C 互不牵连"
+  },
+  "mvs": {
+    "MV-03": {
+      "passed": true,
+      "panelsRefresh5s": 8,
+      "evidence": "deploy/grafana/dashboards/*.json 的 refresh 字段"
+    },
+    "MV-05": {
+      "passed": true,
+      "evidence": "docs/evidence/015/acceptance.json（healthz 四项）"
+    },
+    "MV-06": {
+      "passed": true,
+      "retentionJobs": [
+        {
+          "job_id": 1001,
+          "proc_name": "policy_retention",
+          "drop_after": "7 days"
+        },
+        {
+          "job_id": 1002,
+          "proc_name": "policy_retention",
+          "drop_after": "30 days"
+        },
+        {
+          "job_id": 1003,
+          "proc_name": "policy_retention",
+          "drop_after": "7 days"
+        }
+      ],
+      "dbSize": "132 MB",
+      "evidence": "docs/evidence/016（造旧数据真跑清理）"
+    },
+    "MV-07": {
+      "passed": true,
+      "evidence": "docs/evidence/013/plan-30d.txt"
+    },
+    "MV-09": {
+      "passed": true,
+      "evidence": "docs/evidence/016/timeseries.json（每 2 分钟 +3358 行 vs 理论 3360）"
+    },
+    "MV-10": {
+      "passed": true,
+      "evidence": "MV-10.txt（docker system df + stats）"
+    }
+  }
+}
