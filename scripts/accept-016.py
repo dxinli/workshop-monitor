@@ -198,7 +198,22 @@ def start_simulator() -> Proc:
     raise RuntimeError("模拟器 30 秒内未就绪")
 
 
+def seed_seq_files(tmp: Path) -> None:
+    """把 seq 高水位从库里续接，不从 1 重来（AGENTS.md「序号不归零」）。
+
+    `_tmp` 每轮跑完会清掉，seq 文件跟着没。下一轮 agent 从 1 重发，
+    而幂等门里那些 msgId 早被上一轮用过——**整段被判 DUPLICATE，一行都进不了库**。
+    现象是「链路就绪、采集周期完成、库里的行数一动不动」，极难往序号上想。
+    """
+    for terminal in TERMINALS:
+        high = int(psql(
+            f"SELECT coalesce(max(seq), 0) FROM monitor.raw_message "
+            f"WHERE terminal_id = '{terminal}'") or 0)
+        (tmp / f"seq-{terminal}").write_text(str(high), encoding="utf-8")
+
+
 def start_agents(agent: str, env: dict[str, str], tmp: Path) -> dict[str, Proc]:
+    seed_seq_files(tmp)
     runs: dict[str, Proc] = {}
     for terminal in TERMINALS:
         port = AGENT_HEALTH_PORTS[terminal]
@@ -248,6 +263,19 @@ def start_broker() -> None:
 
 
 # ── 连续运行段 ────────────────────────────────────────────────
+
+
+def assert_pipeline_flowing(seconds: float = 20.0) -> bool:
+    """确认库里的行数真的在涨。
+
+    没有这道前置，每条检查都可能读到上一轮留下的值而误判通过——
+    抽样核对就发生过：读到的是上一轮哨兵写入的 62.5，看着像成功。
+    """
+    a = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
+    time.sleep(seconds)
+    b = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
+    print(f"  链路产出检查：{seconds:.0f} 秒内 measurement {a} → {b}")
+    return b > a
 
 
 def sample(runs: dict[str, Proc], tick: int, started: float) -> dict:
@@ -342,15 +370,19 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
     往模拟器写一个哨兵原始值，等两个采集周期，比对库里的工程值。
     哨兵 625 表示 62.5 ℃（缩放 0.1，接口规范 §12.1）。
 
-    两处口径要对，实测踩过：
+    **必须看到新数据才算数。** 这里曾出过假阳性：只比「值是不是 62.5」，
+    而那 62.5 是上一轮哨兵留下的，链路其实一行都没产出。所以判据里
+    加了「行数确实增长」这一条，值对不上或没增长都不算过。
 
+    另外两处口径：
     - `realtime_value` 的键是 `terminal_id` + `point_id`（`A.1.motor_temp`），
-      **没有** bus_id / slave_addr / point_code 列——查错列名 SQL 直接失败。
-    - 历史要比**最新一条**，不是窗口 max。窗口里还留着哨兵写入前的默认值
-      （量程中点 90），取 max 永远是那个默认值，哨兵写没写都一样。
+      **没有** bus_id / slave_addr / point_code 列
+    - 历史比**最新一条**不是窗口 max——窗口里还留着哨兵写入前的量程中点 90，
+      取 max 会让哨兵写没写都一样
     """
     sentinel = 625
     expect_c = 62.5
+    before = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
     url = "http://127.0.0.1:8080/api/v1/reg/ESN-ZX-0001/A/1/0"
     req = urllib.request.Request(url, method="PUT",
                                  data=json.dumps({"value": sentinel}).encode(),
@@ -362,11 +394,15 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
         return False, f"写模拟器寄存器失败：{exc}"
     time.sleep(12)  # 两个采集周期以上
 
+    after = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
     row = psql("SELECT value FROM monitor.realtime_value "
                "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp'")
     hist = psql("SELECT round(value::numeric, 2) FROM monitor.measurement "
                 "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp' "
                 "ORDER BY collect_time DESC LIMIT 1")
+    if after <= before:
+        return False, (f"链路没有新增数据（{before} → {after}），"
+                       f"读到的值 {row!r}/{hist!r} 可能是上一轮遗留")
     if not row or not hist:
         return False, f"读回为空：实时值={row!r} 历史最新={hist!r}"
     try:
@@ -375,7 +411,8 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
         return False, f"读回非数值：实时值={row!r} 历史最新={hist!r}"
     ok = abs(got_rt - expect_c) < 1e-6 and abs(got_hist - expect_c) < 1e-6
     return ok, (f"写入原始 {sentinel}→期望 {expect_c}；"
-                f"实时值 {got_rt}，历史最新 {got_hist}")
+                f"实时值 {got_rt}，历史最新 {got_hist}；"
+                f"期间新增 {after - before} 行")
 
 
 def case_backfill_continuity() -> tuple[bool, str]:
@@ -677,6 +714,11 @@ def main() -> int:
         runs = start_agents(args.agent, env, tmp)
         adapter = start_adapter(args.adapter, env)
         print("链路就绪。")
+        flowing = assert_pipeline_flowing()
+        if not flowing:
+            raise RuntimeError(
+                "链路 20 秒内没有新增数据，检查会读到上一轮的旧值——"
+                "先查 seq 是否归零被判重、adapter 是否在收")
 
         started = time.time()
         if args.phase in ("run", "all"):
@@ -724,7 +766,9 @@ def main() -> int:
     payload = {
         "task": "016 试运行与历史检验",
         "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "durationMin": args.minutes,
+        # 时长从采样序列取，不取 --minutes 默认值：--phase check 没真跑，
+        # 写 120 会让人以为这一轮跑了两小时。
+        "durationMin": round(ticks[-1]["elapsedMin"], 2) if ticks else 0,
         "samples": len(ticks),
         "terminals": TERMINALS,
         "passed": passed,
