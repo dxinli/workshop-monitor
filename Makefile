@@ -1,4 +1,4 @@
-.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker verify-notify verify-read-view sim-pty sim-test sim-up sim-wecom
+.PHONY: help build verify test lint lint-install vet fmt fmt-check tidy-check build-static up down seed seed-sql verify-config config-check preflight logs clean check hooks passwd verify-broker verify-notify verify-read-view sim-pty sim-test sim-up sim-wecom run-adapter run-agents
 
 GO ?= go
 BIN_DIR := bin
@@ -47,6 +47,8 @@ help:
 	@echo "sim-test      仿真件单元测试（需 sim/modbus-slave-sim 的 venv）"
 	@echo "sim-up        起 Modbus 从站模拟器（需先 sim-pty）"
 	@echo "sim-wecom     起通知接收端 wecom-mock（127.0.0.1:8081）"
+	@echo "run-adapter   起 proto-adapter（自研交付件，先 make build）"
+	@echo "run-agents    起 5 台 edge-agent（仿真形态，先 make build / sim-pty）"
 
 # 与 .github/workflows/ci.yml 的 go + config + aux 三个 job 保持同一集。
 # 两边任一增删检查项，必须同步改另一边。
@@ -160,6 +162,14 @@ up: passwd
 
 down:
 	$(COMPOSE) down
+
+# 自研交付件不在 compose 里：终端与平台分别部署，宿主机直接跑二进制。
+# .env 导入、口令与 5 台循环都收在脚本里，启动清单只引用 make 目标。
+run-adapter:
+	./scripts/start-adapter.sh
+
+run-agents:
+	./scripts/start-agents.sh
 
 # 导入 02_seed.sql。重复执行结果相同：脚本先清空配置域再重建。
 seed: bin/config-tool

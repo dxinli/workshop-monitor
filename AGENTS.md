@@ -40,6 +40,8 @@ make sim-pty         # 建 10 对虚拟串口，端点表写到 .pty/
 make sim-test        # 仿真件单元测试（需 .venv-sim）
 make sim-up          # 起 Modbus 从站模拟器
 make sim-wecom       # 起通知接收端 wecom-mock（宿主机 venv 形态，127.0.0.1:8081）
+make run-adapter     # 起 proto-adapter（自研交付件，先 make build）
+make run-agents      # 起 5 台 edge-agent（仿真形态，先 make build / sim-pty）
 make logs            # 跟随全部容器日志
 
 # 单组件调试
