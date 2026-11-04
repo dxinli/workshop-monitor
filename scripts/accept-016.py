@@ -16,7 +16,7 @@
 policy_retention，看行数真降——这是真验，不是只看 job 配置。见 check 段。
 
 前置：
-    1. make up && docker compose --profile sim up -d wecom-mock
+    1. make up && docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env --profile sim up -d wecom-mock
     2. make seed
     3. go build -o /tmp/edge-agent ./cmd/edge-agent
        go build -o /tmp/proto-adapter ./cmd/proto-adapter

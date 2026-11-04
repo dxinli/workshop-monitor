@@ -26,7 +26,7 @@
 
 ```bash
 make up
-docker compose --profile sim up -d wecom-mock   # 127.0.0.1:8081，记录库落卷
+docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env --profile sim up -d wecom-mock   # 127.0.0.1:8081，记录库落卷
 ```
 
 容器间走服务名 `wecom-mock:8081`，`.env.example` 的 `WECOM_WEBHOOK_URL` 就是它。

@@ -19,7 +19,7 @@ Node-RED 投出去再看两边的留痕。
 
 前置：
     1. make up（含 timescaledb，已 make seed）
-    2. docker compose --profile sim up -d wecom-mock
+    2. docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env --profile sim up -d wecom-mock
     3. .env 已填 WORKSHOP_NOTIFY_PASSWORD
 
 用法：
