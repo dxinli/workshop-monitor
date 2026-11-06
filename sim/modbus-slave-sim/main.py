@@ -15,14 +15,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import signal
+from collections.abc import Generator
 from pathlib import Path
 
-import uvicorn
-
 import scenes as scene_presets
+import uvicorn
 from api import build_app
 from point_table import Bus, load_tree
 from server import BusServer
@@ -39,7 +40,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--ports", default=".pty/ports.json", help="端点表 JSON")
     parser.add_argument("--scenes", default="config/scenes.json", help="工况预设 JSON")
     parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="控制接口地址")
-    parser.add_argument("--port", type=int, default=DEFAULT_HTTP_PORT, help="控制接口端口")
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_HTTP_PORT, help="控制接口端口"
+    )
     parser.add_argument("--log-level", default="INFO", help="日志级别")
     return parser.parse_args(argv)
 
@@ -60,6 +63,18 @@ def load_ports(path: Path, buses: list[Bus]) -> dict[str, str]:
     return ports
 
 
+class ControlApiServer(uvicorn.Server):
+    """控制接口的 HTTP 服务：放行 uvicorn 的信号捕获，SIGINT/SIGTERM 由 run() 统一接管。
+
+    uvicorn 0.30+ 在 serve() 里用 capture_signals() 抢注 SIGINT/SIGTERM，
+    会覆盖 run() 注册给事件循环的处理器；这里放行，让信号直达 stop 事件。
+    """
+
+    @contextlib.contextmanager
+    def capture_signals(self) -> Generator[None, None, None]:
+        yield
+
+
 async def run(args: argparse.Namespace) -> int:
     # 场景文件在启动时读一次。缺文件即终止：启动成功但场景切换 404，
     # 现场会以为是模拟器坏了，而实际是少挂了一个配置。
@@ -75,10 +90,13 @@ async def run(args: argparse.Namespace) -> int:
 
     app = build_app(servers, scenes)
     config = uvicorn.Config(
-        app, host=args.host, port=args.port, log_level=args.log_level.lower(), access_log=False
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=args.log_level.lower(),
+        access_log=False,
     )
-    http = uvicorn.Server(config)
-    http.install_signal_handlers = lambda: None  # 信号统一由本函数处理
+    http = ControlApiServer(config)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

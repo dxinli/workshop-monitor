@@ -71,6 +71,7 @@ def stop_broker() -> None:
 
 
 def start_broker(_env: dict[str, str] | None = None) -> None:
+    del _env  # docker start 用容器自带环境；参数仅为与调用侧签名统一
     docker("start", BROKER_CONTAINER)
     for _ in range(60):
         probe = docker("exec", BROKER_CONTAINER, "mosquitto_pub",

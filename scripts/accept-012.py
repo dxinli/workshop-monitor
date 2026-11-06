@@ -19,7 +19,7 @@ Node-RED 投出去再看两边的留痕。
 
 前置：
     1. make up（含 timescaledb，已 make seed）
-    2. docker compose --profile sim up -d wecom-mock
+    2. docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env --profile sim up -d wecom-mock
     3. .env 已填 WORKSHOP_NOTIFY_PASSWORD
 
 用法：
@@ -151,6 +151,7 @@ class NodeRed:
         raise RuntimeError(f"Node-RED {self.name} 60 秒内未就绪")
 
     def __exit__(self, *_exc) -> None:
+        del _exc  # 基类签名带异常信息，容器清理不区分
         docker("rm", "-f", self.name, check=False)
 
 
@@ -170,8 +171,8 @@ class Echo(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'{"errcode":0,"errmsg":"ok"}')
 
-    def log_message(self, *args: object) -> None:  # noqa: D102 —— 静音访问日志
-        pass
+    def log_message(self, format: str, *args: object) -> None:  # noqa: D102 —— 静音访问日志
+        del format, args
 
 
 def start_echo(port: int) -> tuple[HTTPServer, Thread]:
@@ -209,6 +210,7 @@ def clean(env: dict[str, str], prefix: str) -> None:
 
 def case_config_in_env(_env: dict[str, str]) -> tuple[bool, str]:
     """通道地址与凭据只在 .env，不入版本库。"""
+    del _env  # CASES 统一签名，本用例不碰运行环境
     problems = []
     gitignore = Path(".gitignore").read_text(encoding="utf-8").splitlines()
     if ".env" not in gitignore:
@@ -239,6 +241,7 @@ def case_config_in_env(_env: dict[str, str]) -> tuple[bool, str]:
 
 def case_connectivity_check_script(_env: dict[str, str]) -> tuple[bool, str]:
     """scripts/check-notify.sh 能跑通并输出结果。"""
+    del _env  # CASES 统一签名，本用例不碰运行环境
     out = subprocess.run(["bash", "scripts/check-notify.sh"], capture_output=True, text=True)
     tail = [ln for ln in out.stdout.splitlines() if ln.strip().startswith(("ok", "FAIL"))]
     if out.returncode != 0:

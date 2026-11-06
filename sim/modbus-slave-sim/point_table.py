@@ -131,10 +131,10 @@ def _bus(raw: dict, terminal_id: str, path: str, index: int) -> Bus:
     return Bus(
         terminal_id=terminal_id,
         bus_id=bus_id,
-        baud_rate=int(serial["baudRate"]),
-        data_bits=int(serial["dataBits"]),
-        stop_bits=int(serial["stopBits"]),
-        parity=str(serial["parity"]),
+        baud_rate=int(_req(raw, "baudRate", where)),
+        data_bits=int(_req(raw, "dataBits", where)),
+        stop_bits=int(_req(raw, "stopBits", where)),
+        parity=_str(raw, "parity", where),
         devices=tuple(sorted(devices, key=lambda d: d.slave_addr)),
     )
 
