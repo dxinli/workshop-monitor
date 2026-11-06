@@ -1,0 +1,6 @@
+{
+  "venvPath": ".",
+  "venv": ".venv-sim",
+  "pythonVersion": "3.12",
+  "exclude": ["**/__pycache__", ".venv-sim"]
+}

@@ -29,10 +29,9 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-import serial
-
 import point_table
 import rtu
+import serial
 from point_table import Point, PointTable
 
 API_BASE = "http://127.0.0.1:8080"
@@ -56,7 +55,10 @@ class ReadResult:
         if self.kind != "ok":
             return []
         count = self.frame[2] // 2
-        return [int.from_bytes(self.frame[3 + 2 * i : 5 + 2 * i], "big") for i in range(count)]
+        return [
+            int.from_bytes(self.frame[3 + 2 * i : 5 + 2 * i], "big")
+            for i in range(count)
+        ]
 
 
 def read_registers(port: str, slave: int, address: int, count: int) -> ReadResult:
@@ -134,13 +136,18 @@ def split_words(raw: int, width: int) -> list[int]:
 def http(method: str, path: str, body: dict | None = None) -> dict:
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
-        API_BASE + path, data=data, method=method, headers={"Content-Type": "application/json"}
+        API_BASE + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"{method} {path} 失败：{exc.code} {exc.read().decode()}") from None
+        raise RuntimeError(
+            f"{method} {path} 失败：{exc.code} {exc.read().decode()}"
+        ) from None
 
 
 def sentinel_for(index: int) -> int:
@@ -157,7 +164,9 @@ def iter_points(tables: list[PointTable]):
                     index += 1
 
 
-def seed_sentinels(tables: list[PointTable], ports: dict[str, str]) -> dict[tuple[str, str, str], int]:
+def seed_sentinels(
+    tables: list[PointTable], ports: dict[str, str]
+) -> dict[tuple[str, str, str], int]:
     """给每个测点写唯一哨兵值，返回 (terminal,bus,code) → 原始值。
 
     直接经 RTU 写而不是走控制接口：核对表要证明的是"点表地址上的寄存器
@@ -171,10 +180,14 @@ def seed_sentinels(tables: list[PointTable], ports: dict[str, str]) -> dict[tupl
         try:
             link.reset_input_buffer()
             address = device.start_addr + point.addr
-            request = _write_request(device.slave_addr, address, split_words(value, point.width))
+            request = _write_request(
+                device.slave_addr, address, split_words(value, point.width)
+            )
             link.write(request)
             if len(link.read(8)) != 8:
-                raise RuntimeError(f"{bus.key} 从站 {device.slave_addr} 测点 {point.code} 写入无应答")
+                raise RuntimeError(
+                    f"{bus.key} 从站 {device.slave_addr} 测点 {point.code} 写入无应答"
+                )
         finally:
             link.close()
         expected[(table.terminal_id, bus.bus_id, point.code)] = value
@@ -183,7 +196,11 @@ def seed_sentinels(tables: list[PointTable], ports: dict[str, str]) -> dict[tupl
 
 def _write_request(slave: int, address: int, values: list[int]) -> bytes:
     if len(values) == 1:
-        body = bytes((slave, 6)) + address.to_bytes(2, "big") + values[0].to_bytes(2, "big")
+        body = (
+            bytes((slave, 6))
+            + address.to_bytes(2, "big")
+            + values[0].to_bytes(2, "big")
+        )
         return rtu.with_crc(body)
     body = (
         bytes((slave, 16))
@@ -195,14 +212,18 @@ def _write_request(slave: int, address: int, values: list[int]) -> bytes:
     return rtu.with_crc(body)
 
 
-def check_points(tables: list[PointTable], ports: dict[str, str], csv_path: Path) -> tuple[int, int]:
+def check_points(
+    tables: list[PointTable], ports: dict[str, str], csv_path: Path
+) -> tuple[int, int]:
     """逐点读回哨兵值，写对照表。返回 (总行数, 不一致行数)。"""
     expected = seed_sentinels(tables, ports)
     rows: list[dict] = []
     mismatches = 0
-    for _row_index, table, bus, device, point in iter_points(tables):
+    for _, table, bus, device, point in iter_points(tables):
         absolute = device.start_addr + point.addr
-        result = read_with_retry(ports[bus.key], device.slave_addr, absolute, point.width)
+        result = read_with_retry(
+            ports[bus.key], device.slave_addr, absolute, point.width
+        )
         want = expected[(table.terminal_id, bus.bus_id, point.code)]
         if result.kind == "ok":
             raw: int | None = decode(point, result.registers)
@@ -301,7 +322,9 @@ def sentinel_for_map(tables: list[PointTable]) -> dict[tuple[str, str, int], int
     for index, table, bus, device, point in iter_points(tables):
         if point.addr != 0:
             continue
-        mapping[(table.terminal_id, bus.bus_id, device.slave_addr)] = sentinel_for(index)
+        mapping[(table.terminal_id, bus.bus_id, device.slave_addr)] = sentinel_for(
+            index
+        )
     missing = [
         f"{b.key}/{d.slave_addr}"
         for t in tables
@@ -314,7 +337,9 @@ def sentinel_for_map(tables: list[PointTable]) -> dict[tuple[str, str, int], int
     return mapping
 
 
-def case_bus_independence(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
+def case_bus_independence(
+    tables: list[PointTable], ports: dict[str, str]
+) -> CaseResult:
     """10 条总线各自独立：每条总线只答自己那份哨兵值，10 份两两不同。
 
     判据是「读回值 == 该总线该从站的哨兵值」。端点接错或两条总线共用一个服务时，
@@ -398,7 +423,9 @@ def case_runtime_write(tables: list[PointTable], ports: dict[str, str]) -> CaseR
     multi_detail = {
         "pointCode": multi.code,
         "expectedRaw": raw,
-        "readRaw": decode(multi, multi_read.registers) if multi_read.kind == "ok" else None,
+        "readRaw": decode(multi, multi_read.registers)
+        if multi_read.kind == "ok"
+        else None,
     }
     detail = {
         "bus": bus.key,
@@ -471,7 +498,7 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
         "kind": bad_crc.kind,
         "frameLength": len(bad_crc.frame),
         "crcOk": rtu.crc_ok(bad_crc.frame) if bad_crc.frame else None,
-        "payloadLooksValid": bad_crc.frame[1:] [:2].hex() if bad_crc.frame else None,
+        "payloadLooksValid": bad_crc.frame[1:][:2].hex() if bad_crc.frame else None,
     }
 
     http("DELETE", f"/api/v1/fault/{bus.terminal_id}/{bus.bus_id}")
@@ -490,7 +517,9 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
         and cases["crc"]["crcOk"] is False
         and cases["restored"]["kind"] == "ok"
     )
-    return CaseResult("三类协议层异常可注入：超时 / 异常码 0x83·0x84 / CRC 错", passed, cases)
+    return CaseResult(
+        "三类协议层异常可注入：超时 / 异常码 0x83·0x84 / CRC 错", passed, cases
+    )
 
 
 def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> int:
@@ -500,7 +529,11 @@ def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> 
         CaseResult(
             "逐点读取 140 个测点，寄存器地址与点表一一对应",
             rows == 140 and mismatches == 0,
-            {"rows": rows, "mismatches": mismatches, "csv": str(evidence / "point_check.csv")},
+            {
+                "rows": rows,
+                "mismatches": mismatches,
+                "csv": str(evidence / "point_check.csv"),
+            },
         ),
         case_bus_independence(tables, ports),
         case_runtime_write(tables, ports),
@@ -514,7 +547,11 @@ def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> 
         encoding="utf-8",
     )
     results.append(
-        CaseResult("sim/ 不 import internal/，cmd/ 不 import sim/", not isolation, {"problems": isolation})
+        CaseResult(
+            "sim/ 不 import internal/，cmd/ 不 import sim/",
+            not isolation,
+            {"problems": isolation},
+        )
     )
     summary = {
         "task": "004 仿真链路与点表核对",
@@ -538,7 +575,9 @@ def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="004 点表核对与验收")
-    parser.add_argument("command", choices=["points", "isolation", "faults", "write", "bus", "all"])
+    parser.add_argument(
+        "command", choices=["points", "isolation", "faults", "write", "bus", "all"]
+    )
     parser.add_argument("--config", default="config/terminals")
     parser.add_argument("--ports", default=".pty/agent-ports.json")
     parser.add_argument("--evidence", default="docs/evidence/004")
@@ -550,7 +589,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command in ("points",):
         rows, mismatches = check_points(tables, ports, evidence / "point_check.csv")
-        print(f"点表核对：{rows} 行，不一致 {mismatches} 行 → {evidence / 'point_check.csv'}")
+        print(
+            f"点表核对：{rows} 行，不一致 {mismatches} 行 → {evidence / 'point_check.csv'}"
+        )
         if rows != 140:
             print(f"行数不是 140（实际 {rows}）", file=sys.stderr)
             return 1

@@ -347,7 +347,6 @@ def case_ac08() -> dict:
 
 def case_ac19() -> dict:
     """AC-19 改阈值数值不改代码，60 秒热加载生效。"""
-    m = POINT_META[VIB_POINT]
     cfg = ROOT / "config" / "thresholds.json"
     original = cfg.read_text(encoding="utf-8")
     over, normal = raw_of(VIB_POINT,5), raw_of(VIB_POINT,2)   # 5 > 4.5 高限

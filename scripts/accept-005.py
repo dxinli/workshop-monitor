@@ -175,6 +175,9 @@ def case_values(agent: str, config: str, ports: str, results: list[dict]) -> Non
                 bad.append(f"{bus}.{code} 质量码 {r['quality']}")
                 continue
             got = num(r["value"])
+            if got is None:
+                bad.append(f"{bus}.{code} 值缺失")
+                continue
             if abs(got - want) > 1e-9:
                 bad.append(f"{bus}.{code} = {got}，期望 {want}")
     expect(not bad, "两条总线各 14 点工程值与设定值一致（含 uint32 高低字）",

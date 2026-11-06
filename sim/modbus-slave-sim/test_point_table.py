@@ -142,7 +142,7 @@ class TestRegisterStore:
         return bus, RegisterStore(bus)
 
     def test_baseline_is_midpoint_of_range(self):
-        _bus, store = self._store()
+        _, store = self._store()
         # 电机绕组温度量程 -20~200，中点 90.0 ℃，scale 0.1 → 原始值 900
         assert store.read(1, 0, 1) == [900]
 
@@ -155,26 +155,26 @@ class TestRegisterStore:
         assert store.point_raw(2, point) == [0x8000, 0x0000]
 
     def test_write_then_read(self):
-        _bus, store = self._store()
+        _, store = self._store()
         store.write(1, 0, 625)
         assert store.read(1, 0, 1) == [625]
 
     def test_write_rejects_out_of_range_register(self):
-        _bus, store = self._store()
+        _, store = self._store()
         with pytest.raises(ValueError, match="uint16"):
             store.write(1, 0, 0x10000)
 
     def test_write_rejects_address_outside_block(self):
-        _bus, store = self._store()
+        _, store = self._store()
         with pytest.raises(ValueError, match="超出块"):
             store.write(1, 99, 1)
 
     def test_unknown_slave_rejected(self):
-        _bus, store = self._store()
+        _, store = self._store()
         with pytest.raises(KeyError):
             store.read(9, 0, 1)
 
     def test_snapshot_covers_whole_block(self):
-        _bus, store = self._store()
+        _, store = self._store()
         snapshot = store.snapshot(2)
         assert [row["addr"] for row in snapshot] == list(range(7))

@@ -72,7 +72,10 @@ class TestFrames:
 class TestFaultPlan:
     def test_timeout_drops_exactly_count_frames(self):
         plan = faults.parse_plan("timeout", 2, None)
-        assert [plan.take().kind for _ in range(2)] == [faults.ActionKind.DROP] * 2
+        for _ in range(2):
+            action = plan.take()
+            assert action is not None
+            assert action.kind == faults.ActionKind.DROP
         assert plan.take() is None
 
     @pytest.mark.parametrize("mode", ["exception", "crc"])
@@ -83,7 +86,9 @@ class TestFaultPlan:
 
     def test_exception_defaults_to_slave_failure(self):
         plan = faults.parse_plan("exception", 1, None)
-        assert plan.take().exception_code == faults.DEFAULT_EXCEPTION_CODE
+        action = plan.take()
+        assert action is not None
+        assert action.exception_code == faults.DEFAULT_EXCEPTION_CODE
 
     def test_parse_plan_rejects_unknown_mode(self):
         with pytest.raises(ValueError, match="未知故障模式"):
