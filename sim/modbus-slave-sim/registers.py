@@ -9,13 +9,12 @@
 
 from __future__ import annotations
 
+from point_table import Bus, Device, Point
 from pymodbus.datastore import (
     ModbusSequentialDataBlock,
     ModbusServerContext,
     ModbusSlaveContext,
 )
-
-from point_table import Bus, Device, Point
 
 # 功能码 03 / 04 在 datastore 里都落在保持寄存器的同一个块上。
 # 点表只用 03；04 用于让 0x84 这类异常码有真实请求可回。
@@ -53,7 +52,10 @@ class RegisterStore:
 
     def read(self, slave_addr: int, addr: int, count: int) -> list[int]:
         device = self.device(slave_addr)
-        if addr < device.start_addr or addr + count > device.start_addr + device.register_count:
+        if (
+            addr < device.start_addr
+            or addr + count > device.start_addr + device.register_count
+        ):
             raise ValueError(
                 f"从站 {slave_addr} 的寄存器 {addr}~{addr + count - 1} 超出块 "
                 f"{device.start_addr}~{device.end_addr}"
@@ -67,7 +69,10 @@ class RegisterStore:
         device = self.device(slave_addr)
         for offset, value in enumerate(values):
             _check_register_value(addr + offset, value)
-        if addr < device.start_addr or addr + len(values) > device.start_addr + device.register_count:
+        if (
+            addr < device.start_addr
+            or addr + len(values) > device.start_addr + device.register_count
+        ):
             raise ValueError(
                 f"从站 {slave_addr} 的寄存器 {addr}~{addr + len(values) - 1} 超出块 "
                 f"{device.start_addr}~{device.end_addr}"
@@ -106,7 +111,11 @@ def _midpoint_raw(point: Point) -> int:
     mid = (point.min_value + point.max_value) / 2
     raw = round((mid - point.offset) / point.scale)
     bits = TYPE_BITS[point.data_type]
-    low, high = (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1) if point.data_type.startswith("int") else (0, 2**bits - 1)
+    low, high = (
+        (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+        if point.data_type.startswith("int")
+        else (0, 2**bits - 1)
+    )
     return max(low, min(high, int(raw)))
 
 

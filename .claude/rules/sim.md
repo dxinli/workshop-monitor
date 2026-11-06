@@ -86,7 +86,7 @@ scripts/setup-pty.sh                       # 生成 10 对 pty 与端点表
 curl -X PUT localhost:8080/api/v1/reg/ESN-ZX-0001/A/1/0 \
   -H 'Content-Type: application/json' -d '{"value":625}'
 
-docker compose --profile sim up -d wecom-mock   # 通知接收端
+docker compose -f deploy/docker-compose.yml --env-file deploy/versions.env --env-file .env --profile sim up -d wecom-mock   # 通知接收端
 ```
 
 ## 自检

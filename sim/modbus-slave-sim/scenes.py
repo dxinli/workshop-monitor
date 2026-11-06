@@ -65,7 +65,9 @@ def load(path: Path) -> SceneSet:
         converted: dict[str, float] = {}
         for code, value in points.items():
             if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(f"{path}: 工况 {name} 的测点 {code} 值不是数字：{value!r}")
+                raise ValueError(
+                    f"{path}: 工况 {name} 的测点 {code} 值不是数字：{value!r}"
+                )
             converted[code] = float(value)
         scenes[name] = Scene(
             name=name,

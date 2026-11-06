@@ -18,11 +18,10 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-
 import scenes as scene_presets
+from fastapi import FastAPI, HTTPException
 from faults import parse_plan
+from pydantic import BaseModel, Field
 from server import BusServer
 
 MAX_REGISTER_VALUE = 0xFFFF
@@ -49,7 +48,9 @@ class FaultRequest(BaseModel):
     exceptionCode: Annotated[int | None, Field(ge=1, le=4)] = None
 
 
-def build_app(buses: dict[str, BusServer], scene_set: scene_presets.SceneSet) -> FastAPI:
+def build_app(
+    buses: dict[str, BusServer], scene_set: scene_presets.SceneSet
+) -> FastAPI:
     """``buses`` 以 ``terminalId.busId`` 为键。
 
     ``scene_set`` 是工况预设。它在启动时载入一次，不在请求里读文件：
@@ -117,9 +118,13 @@ def build_app(buses: dict[str, BusServer], scene_set: scene_presets.SceneSet) ->
                 point = by_code.get(item.code)
                 if point is None:
                     codes = "、".join(sorted(by_code))
-                    raise ValueError(f"从站 {slave_addr} 没有测点 {item.code}，可选：{codes}")
+                    raise ValueError(
+                        f"从站 {slave_addr} 没有测点 {item.code}，可选：{codes}"
+                    )
                 bus.store.write_many(
-                    slave_addr, device.start_addr + point.addr, _split_words(item.value, point.width)
+                    slave_addr,
+                    device.start_addr + point.addr,
+                    _split_words(item.value, point.width),
                 )
                 written.append({"code": item.code, "value": item.value})
         except (KeyError, ValueError) as exc:
@@ -181,9 +186,7 @@ def build_app(buses: dict[str, BusServer], scene_set: scene_presets.SceneSet) ->
             try:
                 missing = scene_presets.unknown_codes(scene, bus.bus)
                 if missing:
-                    raise ValueError(
-                        f"测点编码不在点表里：{'、'.join(missing)}"
-                    )
+                    raise ValueError(f"测点编码不在点表里：{'、'.join(missing)}")
                 writes = scene_presets.plan_bus(bus.bus, scene)
                 for slave_addr, start, words in writes:
                     bus.store.write_many(slave_addr, start, words)
