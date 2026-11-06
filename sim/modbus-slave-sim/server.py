@@ -20,14 +20,13 @@ import contextlib
 import logging
 import time
 
+import rtu
+from faults import Action, ActionKind, BusState
+from point_table import Bus
 from pymodbus.datastore import ModbusServerContext
 from pymodbus.framer import FramerType
 from pymodbus.server import ModbusSerialServer
 from pymodbus.server.async_io import ModbusServerRequestHandler
-
-import rtu
-from faults import Action, ActionKind, BusState
-from point_table import Bus
 from registers import RegisterStore
 
 log = logging.getLogger("modbus-slave-sim")
@@ -68,7 +67,7 @@ class BusServer:
         return self.store.context
 
     async def start(self) -> None:
-        self._server = ModbusSerialServer(
+        server = ModbusSerialServer(
             self.store.context,
             framer=FramerType.RTU,
             port=self.port,
@@ -81,7 +80,10 @@ class BusServer:
             response_manipulator=self._manipulate,
             request_tracer=self._trace,
         )
-        self._server.callback_new_connection = lambda: _SafeSerialHandler(self._server)
+        # 回调捕获局部 server 而非 self._server：stop() 会把 self._server 置 None，
+        # 晚到的连接回调会把 None 传给 handler。
+        server.callback_new_connection = lambda: _SafeSerialHandler(server)
+        self._server = server
         self._task = asyncio.create_task(self._serve(), name=f"bus-{self.bus.key}")
         await asyncio.sleep(0)
 
@@ -108,6 +110,7 @@ class BusServer:
 
     def _trace(self, request, *_addr) -> None:
         """记录请求，供控制接口回读"上一帧请求"（核对工具不依赖它）。"""
+        del _addr  # 回调签名带对端地址，串口链路用不上
         log.debug(
             "bus=%s slave=%s fc=%s addr=%s count=%s",
             self.bus.key,
@@ -140,10 +143,14 @@ class BusServer:
         )
         return frame, True
 
-    def _build_fault_frame(self, action: Action, slave: int, function_code: int) -> bytes:
+    def _build_fault_frame(
+        self, action: Action, slave: int, function_code: int
+    ) -> bytes:
         if action.kind is ActionKind.EXCEPTION:
             assert action.exception_code is not None
-            return rtu.build_exception_response(slave, function_code, action.exception_code)
+            return rtu.build_exception_response(
+                slave, function_code, action.exception_code
+            )
         return rtu.corrupt_crc(
             rtu.build_read_response(slave, function_code, self._registers_for(slave))
         )

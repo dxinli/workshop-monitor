@@ -38,6 +38,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 
 DB = "deploy-timescaledb-1"
@@ -96,6 +97,7 @@ def _on_stop(_signum, _frame) -> None:
     子进程变成孤儿。孤儿 agent 会和下一轮抢同一个 MQTT clientId，
     现象是「连上了又掉、库里的行数不涨」。
     """
+    del _signum, _frame  # signal 回调签名固定
     global _STOP
     _STOP = True
 
@@ -639,7 +641,7 @@ def case_retention_really_drops() -> tuple[bool, str]:
 
 
 def write_report(path: Path, ticks: list[dict], results: list[dict],
-                 minutes: float, started: float) -> None:
+                 minutes: float) -> None:
     """试运行报告（验收 7）。手写结论段，实测数据从证据里带出来。"""
     passed = all(r["passed"] for r in results)
     depths = [t["agents"][TERMINALS[0]]["cacheDepth"] for t in ticks
@@ -745,7 +747,7 @@ def main() -> int:
                 ticks = json.loads(ts.read_text(encoding="utf-8"))
 
         results.clear()
-        checks: list[tuple[str, callable]] = []
+        checks: list[tuple[str, Callable[[], tuple[bool, str]]]] = []
         if ticks:
             checks.append(("5 台终端连续运行，采集无中断、队列深度回落",
                            lambda: case_no_abnormal_exit(ticks)))
@@ -789,7 +791,7 @@ def main() -> int:
     }
     (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    write_report(evidence / "试运行报告.md", ticks, results, args.minutes, started)
+    write_report(evidence / "试运行报告.md", ticks, results, args.minutes)
 
     for leftover in tmp.glob("*"):
         leftover.unlink()
