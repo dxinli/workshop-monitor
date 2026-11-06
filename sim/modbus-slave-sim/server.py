@@ -15,6 +15,8 @@ pymodbus 的 ``response_manipulator`` 只能操作 PDU、不能把 CRC 改坏，
 
 from __future__ import annotations
 
+from typing import Any, override
+
 import asyncio
 import contextlib
 import logging
@@ -42,7 +44,9 @@ class _SafeSerialHandler(ModbusServerRequestHandler):
     实现的，因此必须在这里截住：无应答 = 什么都不写。
     """
 
-    def server_send(self, message, addr, **kwargs) -> None:
+    @override
+    def server_send(self, message: bytes, addr: tuple[Any, ...] | None = None,
+                   **kwargs: Any) -> None:
         if kwargs.get("skip_encoding", False):
             if message:
                 self.send(message, addr=addr)
@@ -54,13 +58,13 @@ class BusServer:
     """一条总线的从站模拟。"""
 
     def __init__(self, bus: Bus, port: str) -> None:
-        self.bus = bus
-        self.port = port
-        self.store = RegisterStore(bus)
-        self.state = BusState(tuple(d.slave_addr for d in bus.devices))
+        self.bus: Bus = bus
+        self.port: str = port
+        self.store: RegisterStore = RegisterStore(bus)
+        self.state: BusState = BusState(tuple(d.slave_addr for d in bus.devices))
         self._server: ModbusSerialServer | None = None
-        self._task: asyncio.Task | None = None
-        self._started_at = time.time()
+        self._task: asyncio.Task[None] | None = None
+        self._started_at: float = time.time()
 
     @property
     def context(self) -> ModbusServerContext:
@@ -92,7 +96,7 @@ class BusServer:
             with contextlib.suppress(Exception):
                 await self._server.shutdown()
         if self._task is not None:
-            self._task.cancel()
+            _ = self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
         self._task = None
@@ -108,7 +112,7 @@ class BusServer:
             log.exception("总线 %s 服务异常退出", self.bus.key)
             raise
 
-    def _trace(self, request, *_addr) -> None:
+    def _trace(self, request: Any, *_addr: Any) -> None:
         """记录请求，供控制接口回读"上一帧请求"（核对工具不依赖它）。"""
         del _addr  # 回调签名带对端地址，串口链路用不上
         log.debug(
@@ -120,7 +124,7 @@ class BusServer:
             getattr(request, "count", None),
         )
 
-    def _manipulate(self, response):
+    def _manipulate(self, response: Any) -> Any:
         """按注入计划改写本次应答。
 
         返回 ``(response, skip_encoding)``：跳过 pymodbus 组帧时自己写串口。
@@ -163,7 +167,7 @@ class BusServer:
         device = self.store.device(slave)
         return self.store.read(slave, device.start_addr, device.register_count)
 
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         return {
             "terminalId": self.bus.terminal_id,
             "busId": self.bus.bus_id,

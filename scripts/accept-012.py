@@ -35,9 +35,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from http.client import HTTPResponse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
+from typing import cast, override
 
 DB = "deploy-timescaledb-1"
 IMAGE = "workshop-monitor/node-red:4.0.5"
@@ -61,11 +63,11 @@ SEVEN_FIELDS = {
 # ── 基础设施 ──────────────────────────────────────────────────
 
 
-def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess:
+def docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", *args], capture_output=True, text=True, check=check)
 
 
-def compose(*args: str) -> subprocess.CompletedProcess:
+def compose(*args: str) -> subprocess.CompletedProcess[str]:
     return docker("compose", "-f", "deploy/docker-compose.yml",
                   "--env-file", "deploy/versions.env", "--env-file", ".env", *args)
 
@@ -86,7 +88,7 @@ def load_env(path: Path) -> dict[str, str]:
 def sql(env: dict[str, str], statement: str) -> str:
     out = docker("exec", DB, "psql", "-U", env["POSTGRES_USER"],
                  "-d", env["POSTGRES_DB"], "-tAc", statement)
-    return out.stdout.strip()
+    return (out.stdout or "").strip()
 
 
 def now_ms() -> int:
@@ -104,7 +106,7 @@ def post_notify(notify_id: str, level: int = 3, alarm_type: str = "HIGH_HIGH_LIM
         f"{BASE}/api/notify", data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with cast(HTTPResponse, urllib.request.urlopen(req, timeout=20)) as resp:
             return resp.status, resp.read().decode()
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode()
@@ -117,13 +119,13 @@ class NodeRed:
     """一个临时 Node-RED 实例。env 决定它把通知投到哪。"""
 
     def __init__(self, name: str, env: dict[str, str], webhook: str, enabled: str):
-        self.name = name
-        self.env = env
-        self.webhook = webhook
-        self.enabled = enabled
+        self.name: str = name
+        self.env: dict[str, str] = env
+        self.webhook: str = webhook
+        self.enabled: str = enabled
 
     def __enter__(self) -> "NodeRed":
-        docker("rm", "-f", self.name, check=False)
+        _ = docker("rm", "-f", self.name, check=False)
         cmd = [
             "docker", "run", "-d", "--name", self.name, "--network", "deploy_default",
             "-p", f"127.0.0.1:{API_PORT}:1880",
@@ -138,11 +140,11 @@ class NodeRed:
             "-v", f"{Path('deploy/node-red').resolve()}:/data",
             IMAGE,
         ]
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
         deadline = time.time() + 60
         while time.time() < deadline:
             try:
-                with urllib.request.urlopen(BASE + "/", timeout=2) as resp:
+                with cast(HTTPResponse, urllib.request.urlopen(BASE + "/", timeout=2)) as resp:
                     if resp.status == 200:
                         return self
             except (urllib.error.URLError, ConnectionError, OSError):
@@ -150,9 +152,9 @@ class NodeRed:
             time.sleep(0.3)
         raise RuntimeError(f"Node-RED {self.name} 60 秒内未就绪")
 
-    def __exit__(self, *_exc) -> None:
+    def __exit__(self, *_exc: object) -> None:
         del _exc  # 基类签名带异常信息，容器清理不区分
-        docker("rm", "-f", self.name, check=False)
+        _ = docker("rm", "-f", self.name, check=False)
 
 
 # ── 备用接收端（验证「换通道不改代码」）─────────────────────────
@@ -169,8 +171,9 @@ class Echo(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("content-type", "application/json")
         self.end_headers()
-        self.wfile.write(b'{"errcode":0,"errmsg":"ok"}')
+        _ = self.wfile.write(b'{"errcode":0,"errmsg":"ok"}')
 
+    @override
     def log_message(self, format: str, *args: object) -> None:  # noqa: D102 —— 静音访问日志
         del format, args
 
@@ -185,10 +188,11 @@ def start_echo(port: int) -> tuple[HTTPServer, Thread]:
 # ── 接收端与库的回读 ─────────────────────────────────────────
 
 
-def mock_records(limit: int = 20) -> list[dict]:
-    with urllib.request.urlopen(f"http://127.0.0.1:8081/api/v1/records?limit={limit}",
-                                timeout=5) as resp:
-        return json.loads(resp.read().decode())["records"]
+def mock_records(limit: int = 20) -> list[dict[str, object]]:
+    with cast(HTTPResponse, urllib.request.urlopen(f"http://127.0.0.1:8081/api/v1/records?limit={limit}",
+                                                   timeout=5)) as resp:
+        loaded = cast(dict[str, object], json.loads(resp.read().decode()))
+        return cast(list[dict[str, object]], loaded["records"])
 
 
 def wait_status(env: dict[str, str], notify_id: str, seconds: int = 25) -> str:
@@ -201,8 +205,8 @@ def wait_status(env: dict[str, str], notify_id: str, seconds: int = 25) -> str:
 
 
 def clean(env: dict[str, str], prefix: str) -> None:
-    sql(env, f"DELETE FROM monitor.notify_log WHERE notify_id LIKE '{prefix}%'")
-    sql(env, f"DELETE FROM monitor.alarm WHERE terminal_id = '{TERMINAL}'")
+    _ = sql(env, f"DELETE FROM monitor.notify_log WHERE notify_id LIKE '{prefix}%'")
+    _ = sql(env, f"DELETE FROM monitor.alarm WHERE terminal_id = '{TERMINAL}'")
 
 
 # ── 用例 ──────────────────────────────────────────────────────
@@ -211,7 +215,7 @@ def clean(env: dict[str, str], prefix: str) -> None:
 def case_config_in_env(_env: dict[str, str]) -> tuple[bool, str]:
     """通道地址与凭据只在 .env，不入版本库。"""
     del _env  # CASES 统一签名，本用例不碰运行环境
-    problems = []
+    problems: list[str] = []
     gitignore = Path(".gitignore").read_text(encoding="utf-8").splitlines()
     if ".env" not in gitignore:
         problems.append(".env 不在 .gitignore")
@@ -221,7 +225,7 @@ def case_config_in_env(_env: dict[str, str]) -> tuple[bool, str]:
         problems.append(".env 被版本库跟踪")
     # 排除检查脚本自身：它们必须写出这些特征串才能找它们。
     checks = {"accept-012.py", "check-notify.sh"}
-    leaked = []
+    leaked: list[str] = []
     for path in ["deploy", "scripts", "config", "sim"]:
         for file in Path(path).rglob("*"):
             if not file.is_file() or file.suffix not in {".py", ".sh", ".json", ".js", ".yml"}:
@@ -266,8 +270,9 @@ def case_card_seven_fields(env: dict[str, str]) -> tuple[bool, str]:
     wrong = [f"{k}={record.get(k)!r}≠{want!r}" for k, want in SEVEN_FIELDS.items()
              if record.get(k) != want]
     # 发生时间是动态值，只判非零且与受理时刻同分钟——不能抄实现的时间戳当期望。
-    if not isinstance(record.get("occurTime"), int) or record["occurTime"] <= 0:
-        wrong.append(f"occurTime={record.get('occurTime')!r}")
+    occur_time = record.get("occurTime")
+    if not isinstance(occur_time, int) or occur_time <= 0:
+        wrong.append(f"occurTime={occur_time!r}")
     for key in ("deviceText", "pointText", "alarmTypeText", "unit"):
         if not record.get(key):
             wrong.append(f"{key} 为空")
@@ -282,12 +287,12 @@ def case_channel_unreachable(env: dict[str, str]) -> tuple[bool, str]:
     # 先造一条告警，代表「告警已经入库」这件事已经发生（真入库由 adapter 做，
     # 这里只需一个已存在的行来验证投递失败不动它）。
     occur = now_ms() // 1000
-    sql(env, "INSERT INTO monitor.alarm"
-             " (dedupe_key, terminal_id, point_id, alarm_type, level, status,"
-             "  trigger_value, threshold_value, occur_time, last_time, notify_status)"
-             f" VALUES ('{TERMINAL}|{POINT_ID}|HIGH_HIGH_LIMIT','{TERMINAL}','{POINT_ID}',"
-             f" 'HIGH_HIGH_LIMIT',3,'ACTIVE',108,105, to_timestamp({occur}),"
-             " to_timestamp(" + str(occur) + "), 'PENDING')")
+    _ = sql(env, "INSERT INTO monitor.alarm" +
+                 " (dedupe_key, terminal_id, point_id, alarm_type, level, status," +
+                 "  trigger_value, threshold_value, occur_time, last_time, notify_status)" +
+                 f" VALUES ('{TERMINAL}|{POINT_ID}|HIGH_HIGH_LIMIT','{TERMINAL}','{POINT_ID}'," +
+                 f" 'HIGH_HIGH_LIMIT',3,'ACTIVE',108,105, to_timestamp({occur})," +
+                 " to_timestamp(" + str(occur) + "), 'PENDING')")
     before = sql(env, "SELECT count(*) FROM monitor.alarm WHERE terminal_id = '" + TERMINAL + "'")
     with NodeRed("ws-012-down", env, "http://127.0.0.1:9/webhook", "true"):
         code, _ = post_notify("NT-012-DOWN")
@@ -296,7 +301,7 @@ def case_channel_unreachable(env: dict[str, str]) -> tuple[bool, str]:
         status = wait_status(env, "NT-012-DOWN", 40)
         if status != "FAILED":
             return False, f"notify_log 状态 {status or '<无>'}（应为 FAILED）"
-        reason = sql(env, "SELECT coalesce(fail_reason,'') FROM monitor.notify_log"
+        reason = sql(env, "SELECT coalesce(fail_reason,'') FROM monitor.notify_log" +
                           " WHERE notify_id = 'NT-012-DOWN'")
     after = sql(env, "SELECT count(*) FROM monitor.alarm WHERE terminal_id = '" + TERMINAL + "'")
     if not reason:
@@ -317,7 +322,7 @@ def case_gray_switch_off(env: dict[str, str]) -> tuple[bool, str]:
         status = wait_status(env, "NT-012-OFF")
         if status != "SKIPPED":
             return False, f"notify_log 状态 {status or '<无>'}（应为 SKIPPED）"
-        reason = sql(env, "SELECT coalesce(fail_reason,'') FROM monitor.notify_log"
+        reason = sql(env, "SELECT coalesce(fail_reason,'') FROM monitor.notify_log" +
                           " WHERE notify_id = 'NT-012-OFF'")
     time.sleep(1)
     hits_after = len(mock_records())
@@ -345,7 +350,7 @@ def case_switch_channel_by_config(env: dict[str, str]) -> tuple[bool, str]:
         return False, "另一个通道没收到任何投递"
     if "NT-012-SWITCH" not in Echo.hits[0]:
         return False, "收到的报文里没有本条 notifyId"
-    got = json.loads(Echo.hits[0])
+    got = cast(dict[str, object], json.loads(Echo.hits[0]))
     if got.get("channel") != env.get("NOTIFY_CHANNEL", "wecom-mock"):
         return False, f"channel 字段 {got.get('channel')!r}，与 NOTIFY_CHANNEL 不符"
     return True, "同一份 flows 投到第二个通道，channel 字段跟随配置"
@@ -363,17 +368,17 @@ CASES = [
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="012 验收")
-    parser.add_argument("--evidence", default="docs/evidence/012")
+    _ = parser.add_argument("--evidence", default="docs/evidence/012")
     args = parser.parse_args()
 
-    evidence = Path(args.evidence)
+    evidence = Path(cast(str, args.evidence))
     evidence.mkdir(parents=True, exist_ok=True)
     env = load_env(Path(".env"))
     if "WORKSHOP_NOTIFY_PASSWORD" not in env:
         print("缺少 .env 里的 WORKSHOP_NOTIFY_PASSWORD", file=sys.stderr)
         return 2
 
-    results = []
+    results: list[dict[str, object]] = []
     for name, fn in CASES:
         ok, detail = fn(env)
         results.append({"name": name, "passed": ok, "detail": detail})
@@ -388,7 +393,7 @@ def main() -> int:
         "passed": passed,
         "cases": results,
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"\n验收{'通过' if passed else '未通过'}，证据：{evidence / 'acceptance.json'}")
     return 0 if passed else 1

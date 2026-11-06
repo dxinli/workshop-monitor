@@ -28,10 +28,10 @@ DEFAULT_DB = "var/wecom-mock.db"
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="企业微信机器人接收端模拟")
-    parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="监听地址")
-    parser.add_argument("--port", type=int, default=DEFAULT_HTTP_PORT, help="监听端口")
-    parser.add_argument("--db", default=DEFAULT_DB, help="记录库路径，:memory: 为纯内存")
-    parser.add_argument("--log-level", default="INFO", help="日志级别")
+    _ = parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="监听地址")
+    _ = parser.add_argument("--port", type=int, default=DEFAULT_HTTP_PORT, help="监听端口")
+    _ = parser.add_argument("--db", default=DEFAULT_DB, help="记录库路径，:memory: 为纯内存")
+    _ = parser.add_argument("--log-level", default="INFO", help="日志级别")
     return parser.parse_args(argv)
 
 

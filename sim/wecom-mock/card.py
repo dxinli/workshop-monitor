@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from html import escape
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -31,7 +31,7 @@ LEVEL_TEXT = {1: "提示", 2: "警告", 3: "严重", 4: "紧急"}
 class Alarm(BaseModel):
     """告警的结构化字段。供渲染与后续接真实通道。"""
 
-    model_config = ConfigDict(extra="allow")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
 
     alarmId: str | None = None
     level: Annotated[int, Field(ge=1, le=4)]
@@ -57,7 +57,7 @@ class Markdown(BaseModel):
 class NotifyCard(BaseModel):
     """`POST /webhook` 的请求体。"""
 
-    model_config = ConfigDict(extra="allow")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
 
     notifyId: Annotated[str, Field(min_length=1)]
     channel: str = ""
@@ -122,22 +122,22 @@ def render_card(alarm: Alarm) -> str:
     classes = "card is-backfill" if alarm.backfill else "card"
     rows = "".join(
         f'<div class="row"><span class="k">{escape(name)}</span>'
-        f'<span class="v">{escape(value)}</span></div>'
+        + f'<span class="v">{escape(value)}</span></div>'
         for name, value in card_fields(alarm)
     )
     threshold = threshold_text(alarm)
     threshold_row = (
         f'<div class="row"><span class="k">阈值</span>'
-        f'<span class="v">{escape(threshold)}</span></div>'
+        + f'<span class="v">{escape(threshold)}</span></div>'
         if threshold
         else ""
     )
     badge = '<span class="badge">历史补传</span>' if alarm.backfill else ""
     return (
         f'<div class="{classes}" data-level="{alarm.level}">'
-        f'<div class="head"><span class="level level-{alarm.level}">'
-        f"{escape(level_label(alarm))}</span>{badge}</div>"
-        f'<div class="title">{escape(card_title(alarm))}</div>'
-        f'<div class="body">{rows}{threshold_row}</div>'
-        f"</div>"
+        + f'<div class="head"><span class="level level-{alarm.level}">'
+        + f"{escape(level_label(alarm))}</span>{badge}</div>"
+        + f'<div class="title">{escape(card_title(alarm))}</div>'
+        + f'<div class="body">{rows}{threshold_row}</div>'
+        + f"</div>"
     )

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import json
 import sys
 from pathlib import Path
@@ -19,7 +21,8 @@ from registers import RegisterStore  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _terminal(point_overrides: dict | None = None, **root_overrides) -> dict:
+def _terminal(point_overrides: dict[str, Any] | None = None,
+              **root_overrides: Any) -> dict[str, Any]:
     point = {
         "code": "motor_temp",
         "name": "电机绕组温度",
@@ -76,9 +79,9 @@ def _terminal(point_overrides: dict | None = None, **root_overrides) -> dict:
     return data
 
 
-def _write(tmp_path: Path, data: dict) -> Path:
+def _write(tmp_path: Path, data: dict[str, Any]) -> Path:
     path = tmp_path / "ESN-ZX-9999.json"
-    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _ = path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     return path
 
 
@@ -98,42 +101,42 @@ def test_bus_key_includes_terminal():
     assert "ESN-ZX-0001.A" in keys
 
 
-def test_terminal_schema_shape_is_enforced(tmp_path):
+def test_terminal_schema_shape_is_enforced(tmp_path: Path):
     data = _terminal()
     del data["terminalId"]
     with pytest.raises(ValueError, match="terminalId"):
-        point_table.load_terminal(_write(tmp_path, data))
+        _ = point_table.load_terminal(_write(tmp_path, data))
 
 
-def test_width_must_match_data_type(tmp_path):
+def test_width_must_match_data_type(tmp_path: Path):
     with pytest.raises(ValueError, match="宽度应为 2"):
-        point_table.load_terminal(
+        _ = point_table.load_terminal(
             _write(tmp_path, _terminal({"dataType": "uint32", "width": 1}))
         )
 
 
-def test_unknown_data_type_rejected(tmp_path):
+def test_unknown_data_type_rejected(tmp_path: Path):
     with pytest.raises(ValueError, match="不支持的数据类型"):
-        point_table.load_terminal(_write(tmp_path, _terminal({"dataType": "float32"})))
+        _ = point_table.load_terminal(_write(tmp_path, _terminal({"dataType": "float32"})))
 
 
-def test_point_must_fit_block(tmp_path):
+def test_point_must_fit_block(tmp_path: Path):
     with pytest.raises(ValueError, match="超出块"):
-        point_table.load_terminal(_write(tmp_path, _terminal({"addr": 5})))
+        _ = point_table.load_terminal(_write(tmp_path, _terminal({"addr": 5})))
 
 
-def test_duplicate_slave_rejected(tmp_path):
+def test_duplicate_slave_rejected(tmp_path: Path):
     data = _terminal()
     data["buses"][0]["devices"].append(data["buses"][0]["devices"][0])
     with pytest.raises(ValueError, match="从站地址重复"):
-        point_table.load_terminal(_write(tmp_path, data))
+        _ = point_table.load_terminal(_write(tmp_path, data))
 
 
-def test_non_holding_function_code_rejected(tmp_path):
+def test_non_holding_function_code_rejected(tmp_path: Path):
     data = _terminal()
     data["buses"][0]["devices"][0]["blocks"][0]["functionCode"] = 4
     with pytest.raises(ValueError, match="功能码只能是 03"):
-        point_table.load_terminal(_write(tmp_path, data))
+        _ = point_table.load_terminal(_write(tmp_path, data))
 
 
 class TestRegisterStore:
@@ -172,7 +175,7 @@ class TestRegisterStore:
     def test_unknown_slave_rejected(self):
         _, store = self._store()
         with pytest.raises(KeyError):
-            store.read(9, 0, 1)
+            _ = store.read(9, 0, 1)
 
     def test_snapshot_covers_whole_block(self):
         _, store = self._store()

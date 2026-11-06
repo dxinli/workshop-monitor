@@ -16,6 +16,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TypedDict
+
+
+class FaultSnapshot(TypedDict):
+    """单条注入计划的对内快照，供控制接口回读。"""
+
+    mode: str
+    remaining: int
+    exceptionCode: int
+
+
+class StateSnapshot(TypedDict):
+    """一条总线的故障状态快照，供控制接口回读与测试断言。"""
+
+    offline: list[int]
+    faults: dict[str, FaultSnapshot]
 
 # 异常码取 Modbus 标准码：01 非法功能、02 非法地址、03 非法数据、04 从站故障。
 # 默认 04，接口规范 §3.6 要求把细分码记进 detail 供 SIM-17 取证。
@@ -82,7 +98,7 @@ class BusState:
             raise ValueError("总线至少要有一个从站")
         self._offline: set[int] = set()
         self._plans: dict[int, FaultPlan] = {}
-        self._slave_addrs = frozenset(slave_addrs)
+        self._slave_addrs: frozenset[int] = frozenset(slave_addrs)
 
     def known(self, slave_addr: int) -> bool:
         return slave_addr in self._slave_addrs
@@ -117,18 +133,16 @@ class BusState:
             del self._plans[slave_addr]
         return NORMAL if action is None else action
 
-    def snapshot(self) -> dict:
-        return {
-            "offline": sorted(self._offline),
-            "faults": {
-                str(addr): {
-                    "mode": plan.mode.value,
-                    "remaining": plan.remaining,
-                    "exceptionCode": plan.exception_code,
-                }
-                for addr, plan in sorted(self._plans.items())
-            },
+    def snapshot(self) -> StateSnapshot:
+        faults: dict[str, FaultSnapshot] = {
+            str(addr): {
+                "mode": plan.mode.value,
+                "remaining": plan.remaining,
+                "exceptionCode": plan.exception_code,
+            }
+            for addr, plan in sorted(self._plans.items())
         }
+        return {"offline": sorted(self._offline), "faults": faults}
 
     def _require(self, slave_addr: int) -> None:
         if slave_addr not in self._slave_addrs:

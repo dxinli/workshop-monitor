@@ -23,6 +23,8 @@ collectTime 保留、sendTime 更新、backfill=true、PUBACK 才出队。
 
 from __future__ import annotations
 
+from typing import Any
+
 import argparse
 import json
 import os
@@ -62,17 +64,17 @@ def load_env(path: Path) -> dict[str, str]:
 # ── Broker 控制 ───────────────────────────────────────────────
 
 
-def docker(*args: str) -> subprocess.CompletedProcess:
+def docker(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", *args], capture_output=True, text=True)
 
 
 def stop_broker() -> None:
-    docker("stop", BROKER_CONTAINER)
+    _ = docker("stop", BROKER_CONTAINER)
 
 
 def start_broker(_env: dict[str, str] | None = None) -> None:
     del _env  # docker start 用容器自带环境；参数仅为与调用侧签名统一
-    docker("start", BROKER_CONTAINER)
+    _ = docker("start", BROKER_CONTAINER)
     for _ in range(60):
         probe = docker("exec", BROKER_CONTAINER, "mosquitto_pub",
                        "-h", "127.0.0.1", "-p", "1883", "-t", "/probe", "-m", "x")
@@ -87,15 +89,15 @@ class Subscriber:
 
     def __init__(self, env: dict[str, str], topic_filter: str):
         self.messages: list[tuple[int, str, str]] = []
-        self._lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
         cmd = [
             "docker", "exec", "-e", "PW=" + env.get("MQTT_WORKSHOP_ADAPTER_PASSWORD", ""),
             BROKER_CONTAINER, "sh", "-c",
             f'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" '
-            f'-t "{topic_filter}" -v -q 1 -R',
+            + f'-t "{topic_filter}" -v -q 1 -R',
         ]
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
-        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.proc: subprocess.Popen[str] = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
+        self.thread: threading.Thread = threading.Thread(target=self._pump, daemon=True)
         self.thread.start()
         time.sleep(1.2)
 
@@ -109,7 +111,7 @@ class Subscriber:
             with self._lock:
                 self.messages.append((int(time.time() * 1000), topic, payload))
 
-    def snapshot(self) -> list[dict]:
+    def snapshot(self) -> list[dict[str, Any]]:
         with self._lock:
             raw = list(self.messages)
         out = []
@@ -125,7 +127,7 @@ class Subscriber:
     def stop(self) -> None:
         self.proc.send_signal(signal.SIGTERM)
         try:
-            self.proc.wait(timeout=5)
+            _ = self.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             self.proc.kill()
 
@@ -135,12 +137,12 @@ class Agent:
 
     def __init__(self, agent: str, config: str, ports: str, seq: Path, cache: Path,
                  env: dict[str, str], level: str = "info"):
-        self.proc = subprocess.Popen(
+        self.proc: subprocess.Popen[str] = subprocess.Popen(
             [agent, "-config", config, "-ports", ports, "-seq", str(seq),
              "-cache", str(cache), "-log-level", level],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
         )
-        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread: threading.Thread = threading.Thread(target=self._pump, daemon=True)
         self.lines: list[str] = []
         self._thread.start()
 
@@ -153,7 +155,7 @@ class Agent:
         if self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
         try:
-            self.proc.wait(timeout=grace)
+            _ = self.proc.wait(timeout=grace)
         except subprocess.TimeoutExpired:
             self.proc.kill()
         self._thread.join(timeout=5)
@@ -163,7 +165,7 @@ class Agent:
         return sum(1 for ln in self.lines if needle in ln)
 
 
-def parse_lines(lines: list[str]) -> list[dict]:
+def parse_lines(lines: list[str]) -> list[dict[str, Any]]:
     out = []
     for ln in lines:
         try:
@@ -175,7 +177,7 @@ def parse_lines(lines: list[str]) -> list[dict]:
     return out
 
 
-def expect(cond: bool, name: str, detail: str, results: list[dict]) -> None:
+def expect(cond: bool, name: str, detail: str, results: list[dict[str, Any]]) -> None:
     results.append({"name": name, "passed": bool(cond), "detail": detail})
     print(f"  {'ok  ' if cond else 'FAIL'} {name}：{detail}")
 
@@ -185,7 +187,7 @@ def expect(cond: bool, name: str, detail: str, results: list[dict]) -> None:
 
 def case_broker_down_keeps_collecting(agent: str, config: str, ports: str,
                                       tmp: Path, env: dict[str, str],
-                                      results: list[dict]) -> None:
+                                      results: list[dict[str, Any]]) -> None:
     """BR-19：断开 Broker 后采集不中断，数据进本地队列。"""
     seq, cache = tmp / "seq-a", tmp / "cache-a.db"
     cache.unlink(missing_ok=True)
@@ -208,13 +210,13 @@ def case_broker_down_keeps_collecting(agent: str, config: str, ports: str,
     ok = len(stamps) >= 3 and all(abs(g - PERIOD_MS) <= 700 for g in gaps) and queued >= 3
     expect(ok, "断开 Broker 后采集不中断，数据进本地队列",
            f"断网期间 {len(stamps)} 个采集周期，间隔 {gaps} ms；"
-           f"入队 {queued} 条" if ok else
+           + f"入队 {queued} 条" if ok else
            f"断网期间 {len(stamps)} 个周期，间隔 {gaps} ms，入队 {queued} 条（期望 ≥3 个周期且各 5 秒）",
            results)
 
 
 def case_backfill_after_restart(agent: str, config: str, ports: str, tmp: Path,
-                                env: dict[str, str], results: list[dict]) -> None:
+                                env: dict[str, str], results: list[dict[str, Any]]) -> None:
     """BR-23：进程重启后队列还在，恢复联网按 seq 正序补传。"""
     seq, cache = tmp / "seq-b", tmp / "cache-b.db"
     cache.unlink(missing_ok=True)
@@ -253,12 +255,12 @@ def case_backfill_after_restart(agent: str, config: str, ports: str, tmp: Path,
     ok = len(backfilled) >= down_queued and ordered and kept and no_reuse and ran_backfill
     expect(ok, "重启后本地队列仍在，恢复联网按 seq 正序补传",
            f"断网期间入队 {down_queued} 条，重启后收到 backfill=true {len(backfilled)} 条"
-           f"（seq 有序={ordered} 正序，collectTime 保留且 sendTime 更新={kept}，"
-           f"未复用重启后的新序号={no_reuse}）", results)
+           + f"（seq 有序={ordered} 正序，collectTime 保留且 sendTime 更新={kept}，"
+           + f"未复用重启后的新序号={no_reuse}）", results)
 
 
 def case_backfill_limits(agent: str, config: str, ports: str, tmp: Path,
-                         env: dict[str, str], results: list[dict]) -> None:
+                         env: dict[str, str], results: list[dict[str, Any]]) -> None:
     """BR-24：补传单批 ≤ 500 条、批间隔 ≥ 50 ms。
 
     这两个上限在小样本下看不出来，改为核对 agent 实际采用的参数：
@@ -293,7 +295,7 @@ def case_backfill_limits(agent: str, config: str, ports: str, tmp: Path,
            + (f"；超上限的轮次 {over}" if over else ""), results)
 
 
-def case_frozen_limits_wired(results: list[dict], repo: Path) -> None:
+def case_frozen_limits_wired(results: list[dict[str, Any]], repo: Path) -> None:
     """BR-20：三上限的冻结值确实是 7 天 / 30 万条 / 512 MB。
 
     这两个值写在 agent 的默认参数里，验收直接读常量定义，避免「文档写了但代码没用」。
@@ -314,7 +316,7 @@ def case_frozen_limits_wired(results: list[dict], repo: Path) -> None:
 
 
 def case_unacked_not_dequeued(agent: str, config: str, ports: str, tmp: Path,
-                              env: dict[str, str], results: list[dict]) -> None:
+                              env: dict[str, str], results: list[dict[str, Any]]) -> None:
     """BR-26：只有收到 PUBACK 才出队；发布失败留在队列里。
 
     Broker 全程不可达时补传协程无法发布，队列必须原样不动——
@@ -327,7 +329,7 @@ def case_unacked_not_dequeued(agent: str, config: str, ports: str, tmp: Path,
     time.sleep(8)
     stop_broker()
     time.sleep(16)
-    run.stop()
+    _ = run.stop()
 
     # Broker 仍停着，再起一次：此时补传发不出去，队列应原封不动。
     run2 = Agent(agent, config, ports, seq, cache, env)
@@ -342,7 +344,7 @@ def case_unacked_not_dequeued(agent: str, config: str, ports: str, tmp: Path,
     try:
         run3 = Agent(agent, config, ports, seq, cache, env)
         time.sleep(14)
-        run3.stop()
+        _ = run3.stop()
     finally:
         sub.stop()
 
@@ -351,16 +353,16 @@ def case_unacked_not_dequeued(agent: str, config: str, ports: str, tmp: Path,
     ok = len(backfilled) >= 3 and refused >= 0 and size_before > 0
     expect(ok, "发布失败不出队：断网期间补传不发送、队列文件保持",
            f"Broker 不可达时补传尝试 {refused} 次均未出队（队列文件 {size_before} 字节仍在）；"
-           f"恢复后补出 {len(backfilled)} 条", results)
+           + f"恢复后补出 {len(backfilled)} 条", results)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="007 验收")
-    parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
-    parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
-    parser.add_argument("--ports", default=".pty/agent-ports.json")
-    parser.add_argument("--evidence", default="docs/evidence/007")
-    parser.add_argument("--env-file", default=".env")
+    _ = parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
+    _ = parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
+    _ = parser.add_argument("--ports", default=".pty/agent-ports.json")
+    _ = parser.add_argument("--evidence", default="docs/evidence/007")
+    _ = parser.add_argument("--env-file", default=".env")
     args = parser.parse_args()
 
     repo = Path.cwd()
@@ -372,7 +374,7 @@ def main() -> int:
     env = os.environ.copy()
     env.update(load_env(Path(args.env_file)))
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     try:
         start_broker(env)
         case_frozen_limits_wired(results, repo)
@@ -391,7 +393,7 @@ def main() -> int:
         "passed": passed,
         "cases": results,
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for leftover in tmp.glob("*"):
         leftover.unlink()

@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast, override
+
 import argparse
 import json
 import os
@@ -78,18 +80,25 @@ class Subscriber:
     def __init__(self, env: dict[str, str], topic_filter: str, qos: int = 1,
                  skip_retained: bool = True):
         self.messages: list[tuple[int, str, str]] = []
-        self._lock = threading.Lock()
+        self._lock: threading.Lock = threading.Lock()
+        cmd = self._build_cmd(env, topic_filter, qos, skip_retained)
+        self.proc: subprocess.Popen[str] = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
+        self.thread: threading.Thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+        time.sleep(self._settle_seconds())
+
+    def _build_cmd(self, env: dict[str, str], topic_filter: str, qos: int,
+                   skip_retained: bool) -> list[str]:
         flag = " -R" if skip_retained else ""
-        cmd = [
+        return [
             "docker", "exec", "-e", "PW=" + env.get("MQTT_WORKSHOP_ADAPTER_PASSWORD", ""),
             BROKER_CONTAINER, "sh", "-c",
-            f'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" '
+            f'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" ' +
             f'-t "{topic_filter}" -v -q {qos}{flag}',
         ]
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
-        self.thread = threading.Thread(target=self._pump, daemon=True)
-        self.thread.start()
-        time.sleep(1.2)  # 等订阅在 Broker 上确认，避免漏掉第一秒
+
+    def _settle_seconds(self) -> float:
+        return 1.2
 
     def _pump(self) -> None:
         assert self.proc.stdout is not None
@@ -108,7 +117,7 @@ class Subscriber:
     def stop(self) -> None:
         self.proc.send_signal(signal.SIGTERM)
         try:
-            self.proc.wait(timeout=5)
+            _ = self.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             self.proc.kill()
 
@@ -120,10 +129,11 @@ class StandaloneSubscriber(Subscriber):
     否则订阅端和被观察对象一起消失，看到的是「重启后没有消息」而不是真相。
     """
 
-    def __init__(self, env: dict[str, str], topic_filter: str, qos: int = 1):
-        self.messages: list[tuple[int, str, str]] = []
-        self._lock = threading.Lock()
-        cmd = [
+    @override
+    def _build_cmd(self, env: dict[str, str], topic_filter: str, qos: int,
+                   skip_retained: bool) -> list[str]:
+        del skip_retained  # 独立容器恒带 -R
+        return [
             "docker", "run", "--rm", "-i", "--network", "host",
             f"eclipse-mosquitto:{env.get('MOSQUITTO_VERSION', '2.0.20')}",
             "mosquitto_sub", "-h", "127.0.0.1", "-p", "1883",
@@ -131,14 +141,14 @@ class StandaloneSubscriber(Subscriber):
             "-P", env.get("MQTT_WORKSHOP_ADAPTER_PASSWORD", ""),
             "-t", topic_filter, "-v", "-q", str(qos), "-R",
         ]
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)
-        self.thread = threading.Thread(target=self._pump, daemon=True)
-        self.thread.start()
-        time.sleep(1.5)
+
+    @override
+    def _settle_seconds(self) -> float:
+        return 1.5
 
 
 def run_agent(agent: str, config: str, ports: str, seq: Path, seconds: float,
-              env: dict[str, str], level: str = "info") -> tuple[str, subprocess.Popen]:
+              env: dict[str, str], level: str = "info") -> tuple[str, subprocess.Popen[str]]:
     """起一次 edge-agent 跑 seconds 秒后 SIGTERM，返回全部日志。"""
     proc = subprocess.Popen(
         [agent, "-config", config, "-ports", ports, "-seq", str(seq), "-log-level", level],
@@ -159,7 +169,7 @@ def run_agent(agent: str, config: str, ports: str, seq: Path, seconds: float,
 # ── 模拟器控制 ────────────────────────────────────────────────
 
 
-def api(method: str, path: str, body: dict | None = None) -> dict:
+def api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(SIM + path, data=data, method=method)
     req.add_header("Content-Type", "application/json")
@@ -168,37 +178,38 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
 
 
 def write_points(bus: str, slave: int, points: dict[str, int]) -> None:
-    api("PUT", f"/api/v1/reg/{TERMINAL}/{bus}/{slave}",
+    _ = api("PUT", f"/api/v1/reg/{TERMINAL}/{bus}/{slave}",
         {"points": [{"code": c, "value": v} for c, v in points.items()]})
 
 
 def inject(bus: str, slave: int, mode: str, count: int = 200) -> None:
-    api("POST", f"/api/v1/fault/{TERMINAL}/{bus}/{slave}", {"mode": mode, "count": count})
+    _ = api("POST", f"/api/v1/fault/{TERMINAL}/{bus}/{slave}", {"mode": mode, "count": count})
 
 
 def clear_faults(bus: str) -> None:
-    api("DELETE", f"/api/v1/fault/{TERMINAL}/{bus}")
+    _ = api("DELETE", f"/api/v1/fault/{TERMINAL}/{bus}")
 
 
 # ── 报文解析 ──────────────────────────────────────────────────
 
 
-def parse(messages: list[tuple[int, str, str]], kind: str | None = None) -> list[dict]:
+def parse(messages: list[tuple[int, str, str]], kind: str | None = None) -> list[dict[str, Any]]:
     """把订阅到的原始行解析成 {receivedAt, topic, header, body}，可按 msgType 过滤。"""
     out = []
     for received_at, topic, payload in messages:
         try:
-            env = json.loads(payload)
+            env = cast(dict[str, Any], json.loads(payload))
         except json.JSONDecodeError:
             continue
-        rec = {"receivedAt": received_at, "topic": topic,
-               "header": env.get("header", {}), "body": env.get("body", {})}
-        if kind is None or rec["header"].get("msgType") == kind:
+        header: dict[str, Any] = env.get("header", {})
+        rec: dict[str, Any] = {"receivedAt": received_at, "topic": topic,
+                               "header": header, "body": env.get("body", {})}
+        if kind is None or header.get("msgType") == kind:
             out.append(rec)
     return out
 
 
-def expect(cond: bool, name: str, detail: str, results: list[dict]) -> None:
+def expect(cond: bool, name: str, detail: str, results: list[dict[str, Any]]) -> None:
     results.append({"name": name, "passed": bool(cond), "detail": detail})
     print(f"  {'ok  ' if cond else 'FAIL'} {name}：{detail}")
 
@@ -211,13 +222,13 @@ SPEC_HEADER = ["schemaVersion", "msgType", "msgId", "esn", "seq",
 
 
 def case_three_kinds(agent: str, config: str, ports: str, tmp: Path,
-                     envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                     envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """三类消息都能订阅到；报文头 8 个规范字段齐全、msgId 格式正确。"""
     sub = Subscriber(envs["grid"], "/edge/+/+/up")
     try:
         write_points("A", 1, {"motor_temp": 625, "motor_vib": 235})
         write_points("B", 1, {"motor_temp": 625, "motor_vib": 235})
-        run_agent(agent, config, ports, tmp / "seq-a.state", 12, envs["grid"])
+        _ = run_agent(agent, config, ports, tmp / "seq-a.state", 12, envs["grid"])
     finally:
         sub.stop()
 
@@ -249,16 +260,16 @@ def case_three_kinds(agent: str, config: str, ports: str, tmp: Path,
            "报文头 8 个规范字段齐全",
            f"缺 {missing}" if missing else
            f"schemaVersion={header['schemaVersion']} msgId={header['msgId']} esn={header['esn']} "
-           f"seq={header['seq']} collectTime={header['collectTime']} "
-           f"sendTime={header['sendTime']} backfill={header['backfill']}", results)
+           + f"seq={header['seq']} collectTime={header['collectTime']} "
+           + f"sendTime={header['sendTime']} backfill={header['backfill']}", results)
 
 
 def case_points_share_seq(agent: str, config: str, ports: str, tmp: Path,
-                          envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                          envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """一次采集一条报文，14 个测点共享同一 seq；yc+yx 等于 stat.total。"""
     sub = Subscriber(envs["grid"], "/edge/+/+/up")
     try:
-        run_agent(agent, config, ports, tmp / "seq-b.state", 12, envs["grid"])
+        _ = run_agent(agent, config, ports, tmp / "seq-b.state", 12, envs["grid"])
     finally:
         sub.stop()
 
@@ -272,10 +283,10 @@ def case_points_share_seq(agent: str, config: str, ports: str, tmp: Path,
         values = list(body.get("yc", [])) + list(body.get("yx", []))
         if len(values) != body.get("stat", {}).get("total"):
             problems.append(f"seq={m['header']['seq']} yc+yx={len(values)} "
-                            f"stat.total={body.get('stat', {}).get('total')}")
+                            + f"stat.total={body.get('stat', {}).get('total')}")
     per_seq: dict[int, int] = {}
     for m in data:
-        per_seq.setdefault(m["header"]["seq"], 0)
+        _ = per_seq.setdefault(m["header"]["seq"], 0)
         per_seq[m["header"]["seq"]] += len(m["body"].get("yc", [])) + len(m["body"].get("yx", []))
     expect(not problems and all(n == 14 for n in per_seq.values()),
            "同一次采集的多个测点共享同一 seq",
@@ -284,16 +295,16 @@ def case_points_share_seq(agent: str, config: str, ports: str, tmp: Path,
 
 
 def case_seq_monotonic(agent: str, config: str, ports: str, tmp: Path,
-                       envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                       envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """序号单调递增；重启后从最大序号续接，不归零。"""
     seq_file = tmp / "seq-restart.state"
     seq_file.unlink(missing_ok=True)
 
     sub = Subscriber(envs["grid"], "/edge/+/+/up")
     try:
-        run_agent(agent, config, ports, seq_file, 11, envs["grid"])
+        _ = run_agent(agent, config, ports, seq_file, 11, envs["grid"])
         first = [m["header"]["seq"] for m in parse(sub.snapshot())]
-        run_agent(agent, config, ports, seq_file, 7, envs["grid"])
+        _ = run_agent(agent, config, ports, seq_file, 7, envs["grid"])
         all_seqs = [m["header"]["seq"] for m in parse(sub.snapshot())]
     finally:
         sub.stop()
@@ -308,11 +319,11 @@ def case_seq_monotonic(agent: str, config: str, ports: str, tmp: Path,
     continued = min(second) > max(first)
     expect(monotonic and continued, "序号单调递增且重启不归零",
            f"第一次运行末条 seq={max(first)}，重启后首条 seq={min(second)}"
-           f"（{'大于' if continued else '不大于'}前次最大值；单调={monotonic}）", results)
+           + f"（{'大于' if continued else '不大于'}前次最大值；单调={monotonic}）", results)
 
 
 def case_send_collect_time(agent: str, config: str, ports: str, tmp: Path,
-                           envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                           envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """sendTime 由上报段写入，collectTime 沿用 005 的批次开始时刻，两者不混用。"""
     sub = Subscriber(envs["grid"], "/edge/+/+/up")
     try:
@@ -351,14 +362,14 @@ def case_send_collect_time(agent: str, config: str, ports: str, tmp: Path,
 
 
 def case_failed_points(agent: str, config: str, ports: str, tmp: Path,
-                       envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                       envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """采集失败的点仍在数组里且 value=null，不省略、不沿用旧值。"""
     clear_faults("A")
     write_points("A", 1, {"motor_temp": 625, "motor_vib": 235})
     inject("A", 1, "timeout")
     sub = Subscriber(envs["grid"], "/edge/+/+/up")
     try:
-        run_agent(agent, config, ports, tmp / "seq-d.state", 12, envs["grid"])
+        _ = run_agent(agent, config, ports, tmp / "seq-d.state", 12, envs["grid"])
     finally:
         sub.stop()
         clear_faults("A")
@@ -387,7 +398,7 @@ def case_failed_points(agent: str, config: str, ports: str, tmp: Path,
 
 
 def case_lwt(agent: str, config: str, ports: str, tmp: Path,
-             envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+             envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """终端异常退出后，订阅方在 3 个上报周期内收到 OFFLINE。"""
     sub = Subscriber(envs["grid"], "/edge/ESN-ZX-0001/status/up")
     proc = subprocess.Popen(
@@ -399,7 +410,7 @@ def case_lwt(agent: str, config: str, ports: str, tmp: Path,
         time.sleep(6)
         killed_at = int(time.time() * 1000)
         proc.kill()  # SIGKILL：不走优雅退出，只能靠 LWT
-        proc.wait(timeout=5)
+        _ = proc.wait(timeout=5)
         deadline = killed_at + LWT_DEADLINE_MS
         while int(time.time() * 1000) < deadline + 2000:
             hit = [m for m in parse(sub.snapshot(), "STATUS")
@@ -429,7 +440,7 @@ def case_lwt(agent: str, config: str, ports: str, tmp: Path,
 
 
 def case_events(agent: str, config: str, ports: str, tmp: Path,
-                envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """连续失败 5 次报 SENSOR_OFFLINE，恢复后报 SENSOR_RECOVERED。
 
     必须在同一个进程里走完「失败 → 恢复」：失败计数是进程内状态，
@@ -451,7 +462,7 @@ def case_events(agent: str, config: str, ports: str, tmp: Path,
     finally:
         proc.send_signal(signal.SIGTERM)
         try:
-            proc.wait(timeout=10)
+            _ = proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
         clear_faults("A")
@@ -471,11 +482,11 @@ def case_events(agent: str, config: str, ports: str, tmp: Path,
         problems.append(f"failureCount={offline[0]['body'].get('failureCount')}，期望 5")
     detail = "；".join(problems) if problems else (
         f"SENSOR_OFFLINE（从站 1，连续 {offline[0]['body'].get('failureCount')} 次，"
-        f"reason={offline[0]['body'].get('reason')}）→ SENSOR_RECOVERED")
+        + f"reason={offline[0]['body'].get('reason')}）→ SENSOR_RECOVERED")
     expect(not problems, "连续失败报离线事件、恢复报恢复事件", detail, results)
 
 
-def compose(env: dict[str, str], *args: str) -> subprocess.CompletedProcess:
+def compose(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
     """跑 docker compose。ACL 由 MQTT_TOPIC_SCHEME 选，切换方案必须重建 Broker。"""
     return subprocess.run(
         ["docker", "compose", "-f", "deploy/docker-compose.yml",
@@ -506,7 +517,7 @@ def restart_broker(env: dict[str, str], scheme: str) -> None:
 
 
 def case_reconnect(agent: str, config: str, ports: str, tmp: Path,
-                   envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                   envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """Broker 重启后自动重连，并补发一条 ONLINE。
 
     两个判据缺一不可：连接要自己回来（不靠进程重启），回来之后要重新声明 ONLINE——
@@ -546,11 +557,11 @@ def case_reconnect(agent: str, config: str, ports: str, tmp: Path,
     ok = reconnected >= 1 and last is not None and status == "ONLINE"
     expect(ok, "Broker 重启后自动重连并补发 ONLINE",
            f"重连成功 {reconnected} 次、退避重试 {retries} 次；"
-           f"重连后 Broker 上的 Retain 状态 = {status}", results)
+           + f"重连后 Broker 上的 Retain 状态 = {status}", results)
 
 
 def case_scheme_switch(agent: str, config: str, ports: str, tmp: Path,
-                       envs: dict[str, dict[str, str]], results: list[dict]) -> None:
+                       envs: dict[str, dict[str, str]], results: list[dict[str, Any]]) -> None:
     """MQTT_TOPIC_SCHEME=internal 时同一份代码发到 /workshop/ 前缀。
 
     ACL 是按方案选的（deploy/mosquitto/acl.<scheme>），所以切换方案必须重建 Broker；
@@ -561,7 +572,7 @@ def case_scheme_switch(agent: str, config: str, ports: str, tmp: Path,
         edge = Subscriber(envs["internal"], "/edge/+/+/up")
         shop = Subscriber(envs["internal"], "/workshop/+/+/up")
         try:
-            run_agent(agent, config, ports, tmp / "seq-g.state", 8, envs["internal"])
+            _ = run_agent(agent, config, ports, tmp / "seq-g.state", 8, envs["internal"])
         finally:
             edge.stop()
             shop.stop()
@@ -574,10 +585,10 @@ def case_scheme_switch(agent: str, config: str, ports: str, tmp: Path,
     ok = want <= shop_topics and edge_count == 0
     expect(ok, "主题随 MQTT_TOPIC_SCHEME 切换",
            f"internal 方案下收到 {sorted(shop_topics)}；"
-           f"/edge/ 前缀消息 {edge_count} 条（应为 0）", results)
+           + f"/edge/ 前缀消息 {edge_count} 条（应为 0）", results)
 
 
-def case_model_is_pure(agent_dir: Path, results: list[dict]) -> None:
+def case_model_is_pure(agent_dir: Path, results: list[dict[str, Any]]) -> None:
     """internal/model 只有结构体：不得出现方法声明。"""
     model_dir = agent_dir / "internal" / "model"
     offenders = []
@@ -594,11 +605,11 @@ def case_model_is_pure(agent_dir: Path, results: list[dict]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="006 验收")
-    parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
-    parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
-    parser.add_argument("--ports", default=".pty/agent-ports.json")
-    parser.add_argument("--evidence", default="docs/evidence/006")
-    parser.add_argument("--env-file", default=".env")
+    _ = parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
+    _ = parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
+    _ = parser.add_argument("--ports", default=".pty/agent-ports.json")
+    _ = parser.add_argument("--evidence", default="docs/evidence/006")
+    _ = parser.add_argument("--env-file", default=".env")
     args = parser.parse_args()
 
     evidence = Path(args.evidence)
@@ -609,7 +620,7 @@ def main() -> int:
     base = load_env(Path(args.env_file))
     envs = {"grid": agent_env(base, "grid"), "internal": agent_env(base, "internal")}
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     case_three_kinds(args.agent, args.config, args.ports, tmp, envs, results)
     case_points_share_seq(args.agent, args.config, args.ports, tmp, envs, results)
     case_seq_monotonic(args.agent, args.config, args.ports, tmp, envs, results)
@@ -630,7 +641,7 @@ def main() -> int:
         "passed": passed,
         "cases": results,
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for leftover in tmp.glob("*"):
         leftover.unlink()

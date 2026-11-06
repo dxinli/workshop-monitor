@@ -107,23 +107,23 @@ class TestLoad:
     def test_unknown_scene_lists_known_names(self):
         got = scenes.load(ROOT / "config" / "scenes.json")
         with pytest.raises(ValueError, match="alarm、normal、safety"):
-            got.get("bogus")
+            _ = got.get("bogus")
 
-    def test_missing_points_key_is_rejected(self, tmp_path):
+    def test_missing_points_key_is_rejected(self, tmp_path: Path):
         path = tmp_path / "scenes.json"
-        path.write_text(json.dumps({"configVersion": "1.0.0", "scenes": {"x": {}}}), encoding="utf-8")
+        _ = path.write_text(json.dumps({"configVersion": "1.0.0", "scenes": {"x": {}}}), encoding="utf-8")
         with pytest.raises(ValueError, match="points"):
-            scenes.load(path)
+            _ = scenes.load(path)
 
-    def test_bool_value_is_rejected(self, tmp_path):
+    def test_bool_value_is_rejected(self, tmp_path: Path):
         # true 在 Python 里是 int 的子类，不显式挡会当成 1 写进寄存器。
         path = tmp_path / "scenes.json"
-        path.write_text(
+        _ = path.write_text(
             json.dumps({"configVersion": "1.0.0", "scenes": {"x": {"points": {"door": True}}}}),
             encoding="utf-8",
         )
         with pytest.raises(ValueError, match="不是数字"):
-            scenes.load(path)
+            _ = scenes.load(path)
 
 
 class TestEngineeringToRaw:
@@ -156,7 +156,7 @@ class TestEngineeringToRaw:
         # 静默截断会得到「看起来正常但没有越限」的现场，是最难排查的一类错。
         point = make_point(low=-20, high=200)
         with pytest.raises(ValueError, match="超出量程"):
-            scenes.engineering_to_raw(point, 300)
+            _ = scenes.engineering_to_raw(point, 300)
 
 
 class TestPlanBus:

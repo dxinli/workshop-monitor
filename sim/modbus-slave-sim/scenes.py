@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from point_table import Bus, Point
 
@@ -50,20 +51,23 @@ class SceneSet:
 
 def load(path: Path) -> SceneSet:
     """读 scenes.json。结构不对就抛错，不静默取默认值——场景错了整场演示都是错的。"""
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
     scenes_raw = raw.get("scenes")
     if not isinstance(scenes_raw, dict) or not scenes_raw:
         raise ValueError(f"{path}: 缺少非空的 scenes")
+    scenes_map = cast(dict[str, object], scenes_raw)
 
     scenes: dict[str, Scene] = {}
-    for name, body in scenes_raw.items():
+    for name, body in scenes_map.items():
         if not isinstance(body, dict):
             raise ValueError(f"{path}: 工况 {name} 不是对象")
-        points = body.get("points")
+        body_map = cast(dict[str, object], body)
+        points = body_map.get("points")
         if not isinstance(points, dict) or not points:
             raise ValueError(f"{path}: 工况 {name} 缺少非空的 points")
+        points_map = cast(dict[str, object], points)
         converted: dict[str, float] = {}
-        for code, value in points.items():
+        for code, value in points_map.items():
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 raise ValueError(
                     f"{path}: 工况 {name} 的测点 {code} 值不是数字：{value!r}"
@@ -71,8 +75,8 @@ def load(path: Path) -> SceneSet:
             converted[code] = float(value)
         scenes[name] = Scene(
             name=name,
-            description=str(body.get("description", "")),
-            clear_faults=bool(body.get("clearFaults", False)),
+            description=str(body_map.get("description", "")),
+            clear_faults=bool(body_map.get("clearFaults", False)),
             points=converted,
         )
 
@@ -91,8 +95,10 @@ def engineering_to_raw(point: Point, value: float) -> int:
     """
     if value < point.min_value or value > point.max_value:
         raise ValueError(
-            f"测点 {point.code} 的值 {value} 超出量程 "
-            f"{point.min_value}~{point.max_value} {point.unit or ''}".rstrip()
+            (
+                f"测点 {point.code} 的值 {value} 超出量程 "
+                + f"{point.min_value}~{point.max_value} {point.unit or ''}"
+            ).rstrip()
         )
     raw = round((value - point.offset) / point.scale)
     if point.data_type.startswith("int"):

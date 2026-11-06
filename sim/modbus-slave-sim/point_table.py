@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 # 一个从站里寄存器块的编号：模拟器只按功能码 3 应答（接口规范 §3.2）。
 FUNCTION_CODE_HOLDING = 3
@@ -88,13 +90,17 @@ _TERMINAL_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\.json$")
 def load_terminal(path: Path) -> PointTable:
     """载入一份终端点表。形状错误直接抛错，不做容错解析。"""
     with path.open(encoding="utf-8") as fh:
-        raw = json.load(fh)
-    if not isinstance(raw, dict):
+        loaded = cast(object, json.load(fh))
+    if not isinstance(loaded, dict):
         raise ValueError(f"{path}: 顶层必须是对象")
+    raw = cast(dict[str, object], loaded)
     where = str(path)
     terminal_id = _str(raw, "terminalId", where)
     config_version = _str(raw, "configVersion", where)
-    buses = tuple(_bus(item, terminal_id, where, i) for i, item in enumerate(_list(raw, "buses", where)))
+    buses = tuple(
+        _bus(item, terminal_id, where, i)
+        for i, item in enumerate(_obj_list(raw, "buses", where))
+    )
     if not buses:
         raise ValueError(f"{path}: buses 为空")
     return PointTable(terminal_id, config_version, buses)
@@ -114,7 +120,7 @@ def load_tree(directory: Path) -> list[PointTable]:
     return sorted(tables, key=lambda t: t.terminal_id)
 
 
-def _bus(raw: dict, terminal_id: str, path: str, index: int) -> Bus:
+def _bus(raw: Mapping[str, object], terminal_id: str, path: str, index: int) -> Bus:
     where = f"{path}: buses[{index}]"
     bus_id = _str(raw, "busId", where)
     serial_keys = ("baudRate", "dataBits", "stopBits", "parity")
@@ -122,7 +128,7 @@ def _bus(raw: dict, terminal_id: str, path: str, index: int) -> Bus:
     missing = [k for k, v in serial.items() if v is None]
     if missing:
         raise ValueError(f"{where}: 缺少串口参数 {', '.join(missing)}")
-    devices = tuple(_device(item, where) for item in _list(raw, "devices", where))
+    devices = tuple(_device(item, where) for item in _obj_list(raw, "devices", where))
     if not devices:
         raise ValueError(f"{where}: devices 为空")
     addrs = [d.slave_addr for d in devices]
@@ -131,32 +137,32 @@ def _bus(raw: dict, terminal_id: str, path: str, index: int) -> Bus:
     return Bus(
         terminal_id=terminal_id,
         bus_id=bus_id,
-        baud_rate=int(_req(raw, "baudRate", where)),
-        data_bits=int(_req(raw, "dataBits", where)),
-        stop_bits=int(_req(raw, "stopBits", where)),
+        baud_rate=_int(raw, "baudRate", where),
+        data_bits=_int(raw, "dataBits", where),
+        stop_bits=_int(raw, "stopBits", where),
         parity=_str(raw, "parity", where),
         devices=tuple(sorted(devices, key=lambda d: d.slave_addr)),
     )
 
 
-def _device(raw: dict, where: str) -> Device:
-    blocks = _list(raw, "blocks", where)
+def _device(raw: Mapping[str, object], where: str) -> Device:
+    blocks = _obj_list(raw, "blocks", where)
     if len(blocks) != 1:
         raise ValueError(f"{where}: 本任务只支持每个从站一个块，实际 {len(blocks)} 个")
     block = blocks[0]
-    function_code = int(_req(block, "functionCode", where))
+    function_code = _int(block, "functionCode", where)
     if function_code != FUNCTION_CODE_HOLDING:
         raise ValueError(f"{where}: 功能码只能是 03，实际 {function_code}")
-    start = int(_req(block, "startAddr", where))
-    count = int(_req(block, "registerCount", where))
+    start = _int(block, "startAddr", where)
+    count = _int(block, "registerCount", where)
     if not 1 <= count <= MAX_BLOCK_REGISTERS:
         raise ValueError(f"{where}: registerCount 越界 {count}")
-    points = tuple(_point(p, where) for p in _list(block, "points", where))
+    points = tuple(_point(p, where) for p in _obj_list(block, "points", where))
     for p in points:
         if p.addr < 0 or p.addr + p.width > count:
             raise ValueError(f"{where}: 测点 {p.code} 的地址 {p.addr}+{p.width} 超出块 {count}")
     return Device(
-        slave_addr=int(_req(raw, "slaveAddr", where)),
+        slave_addr=_int(raw, "slaveAddr", where),
         name=_str(raw, "name", where),
         type=_str(raw, "type", where),
         start_addr=start,
@@ -165,9 +171,9 @@ def _device(raw: dict, where: str) -> Device:
     )
 
 
-def _point(raw: dict, where: str) -> Point:
+def _point(raw: Mapping[str, object], where: str) -> Point:
     data_type = _str(raw, "dataType", where)
-    width = int(_req(raw, "width", where))
+    width = _int(raw, "width", where)
     expected = {"int16": 1, "uint16": 1, "uint32": 2, "int32": 2}.get(data_type)
     if expected is None:
         raise ValueError(f"{where}: 不支持的数据类型 {data_type}")
@@ -177,34 +183,62 @@ def _point(raw: dict, where: str) -> Point:
     return Point(
         code=_str(raw, "code", where),
         name=_str(raw, "name", where),
-        addr=int(_req(raw, "addr", where)),
+        addr=_int(raw, "addr", where),
         width=width,
         data_type=data_type,
         byte_order=_str(raw, "byteOrder", where),
-        scale=float(_req(raw, "scale", where)),
-        offset=float(raw.get("offset", 0)),
+        scale=_float(raw, "scale", where),
+        offset=_float(raw, "offset", where, default=0.0),
         unit=None if unit is None else str(unit),
-        min_value=float(_req(raw, "minValue", where)),
-        max_value=float(_req(raw, "maxValue", where)),
+        min_value=_float(raw, "minValue", where),
+        max_value=_float(raw, "maxValue", where),
         si_type=_str(raw, "siType", where),
     )
 
 
-def _req(raw: dict, key: str, where: str):
+def _req(raw: Mapping[str, object], key: str, where: str) -> object:
     if key not in raw or raw[key] is None:
         raise ValueError(f"{where}: 缺少字段 {key}")
     return raw[key]
 
 
-def _str(raw: dict, key: str, where: str) -> str:
+def _int(raw: Mapping[str, object], key: str, where: str) -> int:
+    value = _req(raw, key, where)
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise ValueError(f"{where}: {key} 必须是整数，实际 {value!r}")
+    return int(value)
+
+
+def _float(
+    raw: Mapping[str, object], key: str, where: str, default: float | None = None
+) -> float:
+    value = _req(raw, key, where) if default is None else raw.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise ValueError(f"{where}: {key} 必须是数值，实际 {value!r}")
+    return float(value)
+
+
+def _str(raw: Mapping[str, object], key: str, where: str) -> str:
     value = _req(raw, key, where)
     if not isinstance(value, str) or not value:
         raise ValueError(f"{where}: {key} 必须是非空字符串")
     return value
 
 
-def _list(raw: dict, key: str, where: str) -> list:
+def _list(raw: Mapping[str, object], key: str, where: str) -> list[object]:
     value = _req(raw, key, where)
     if not isinstance(value, list) or not value:
         raise ValueError(f"{where}: {key} 必须是非空数组")
-    return value
+    return cast(list[object], value)
+
+
+def _obj_list(
+    raw: Mapping[str, object], key: str, where: str
+) -> list[Mapping[str, object]]:
+    """对象数组：每一项都必须是 JSON 对象，否则报错而不是继续解析。"""
+    out: list[Mapping[str, object]] = []
+    for index, item in enumerate(_list(raw, key, where)):
+        if not isinstance(item, dict):
+            raise ValueError(f"{where}: {key}[{index}] 必须是对象")
+        out.append(cast(dict[str, object], item))
+    return out

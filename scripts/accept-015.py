@@ -28,6 +28,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import argparse
 import json
 import os
@@ -63,7 +65,7 @@ def load_env(path: Path) -> dict[str, str]:
     return env
 
 
-def docker(*args: str) -> subprocess.CompletedProcess:
+def docker(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", *args], capture_output=True, text=True)
 
 
@@ -74,11 +76,11 @@ def psql(sql: str) -> str:
 
 
 def stop_broker() -> None:
-    docker("stop", BROKER_CONTAINER)
+    _ = docker("stop", BROKER_CONTAINER)
 
 
 def start_broker() -> None:
-    docker("start", BROKER_CONTAINER)
+    _ = docker("start", BROKER_CONTAINER)
     for _ in range(80):
         probe = docker("exec", BROKER_CONTAINER, "mosquitto_pub",
                        "-h", "127.0.0.1", "-p", "1883", "-t", "/probe", "-m", "x")
@@ -99,10 +101,10 @@ class Proc:
     """
 
     def __init__(self, cmd: list[str], env: dict[str, str]):
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True, env=env)
+        self.proc: subprocess.Popen[str] = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
         self.lines: list[str] = []
-        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread: threading.Thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
 
     def _pump(self) -> None:
@@ -114,7 +116,7 @@ class Proc:
         if self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
         try:
-            self.proc.wait(timeout=grace)
+            _ = self.proc.wait(timeout=grace)
         except subprocess.TimeoutExpired:
             self.proc.kill()
         self._thread.join(timeout=5)
@@ -124,7 +126,7 @@ class Proc:
         return sum(1 for ln in self.lines if needle in ln)
 
 
-def wait_health(port: int, timeout: float = 30.0) -> tuple[int, dict]:
+def wait_health(port: int, timeout: float = 30.0) -> tuple[int, dict[str, Any]]:
     """轮询 /healthz 直到端口可连，返回 (状态码, 响应体)。"""
     deadline = time.time() + timeout
     last = None
@@ -140,7 +142,7 @@ def wait_health(port: int, timeout: float = 30.0) -> tuple[int, dict]:
     raise RuntimeError(f"健康检查端口 {port} 未就绪：{last}")
 
 
-def expect(ok: bool, name: str, detail: str, results: list[dict]) -> None:
+def expect(ok: bool, name: str, detail: str, results: list[dict[str, Any]]) -> None:
     results.append({"name": name, "passed": bool(ok), "detail": detail})
     print(f"  {'ok  ' if ok else 'FAIL'} {name}")
     if not ok:
@@ -151,7 +153,7 @@ def expect(ok: bool, name: str, detail: str, results: list[dict]) -> None:
 
 
 def case_agent_ok(agent: str, config: str, ports: str, tmp: Path,
-                  env: dict[str, str], results: list[dict]) -> None:
+                  env: dict[str, str], results: list[dict[str, Any]]) -> None:
     """edge-agent 全项正常：200 / ok，四项齐全。"""
     e = dict(env, HEALTH_ADDR=f"127.0.0.1:{AGENT_PORT}")
     run = Proc([agent, "-config", config, "-ports", ports,
@@ -159,36 +161,36 @@ def case_agent_ok(agent: str, config: str, ports: str, tmp: Path,
     try:
         code, body = wait_health(AGENT_PORT)
     finally:
-        run.stop()
+        _ = run.stop()
 
     checks = body.get("checks", {})
     detail = (f"HTTP {code} status={body.get('status')} "
-              f"checks={sorted(checks)} mqtt={checks.get('mqtt')}")
+              + f"checks={sorted(checks)} mqtt={checks.get('mqtt')}")
     ok = (code == 200 and body.get("status") == "ok"
           and {"config", "serial", "mqtt", "cache"} <= set(checks))
     expect(ok, "edge-agent 全项正常返回 200 / ok，四项齐全", detail, results)
 
 
 def case_agent_mqtt_down(agent: str, config: str, ports: str, tmp: Path,
-                         env: dict[str, str], results: list[dict]) -> None:
+                         env: dict[str, str], results: list[dict[str, Any]]) -> None:
     """MQTT 断开必须是 200 降级，不是 503。"""
     e = dict(env, HEALTH_ADDR=f"127.0.0.1:{AGENT_PORT}")
     run = Proc([agent, "-config", config, "-ports", ports,
                 "-seq", str(tmp / "seq-mqtt"), "-cache", str(tmp / "cache-mqtt.db")], e)
     try:
-        wait_health(AGENT_PORT)
+        _ = wait_health(AGENT_PORT)
         stop_broker()
         time.sleep(16)  # 3 个采集周期以上，确保断网后仍在采
         code, body = wait_health(AGENT_PORT)
         cache = body.get("checks", {}).get("cache", {})
         received = run.count("采集周期完成")
-        run.stop()
+        _ = run.stop()
     finally:
         start_broker()
 
     mqtt = body.get("checks", {}).get("mqtt", {})
     detail = (f"HTTP {code} status={body.get('status')} mqtt={mqtt} "
-              f"断网期间采集 {received} 个周期 cache.depth={cache.get('depth')}")
+              + f"断网期间采集 {received} 个周期 cache.depth={cache.get('depth')}")
     ok = (code == 200 and body.get("status") == "degraded"
           and mqtt.get("connected") is False and received >= 2)
     expect(ok, "MQTT 断开但采集正常：200 降级，不是 503", detail, results)
@@ -208,7 +210,7 @@ def _bus_offline(bus: str, offline: bool) -> None:
 
 
 def case_agent_serial_down(agent: str, config: str, ports: str, tmp: Path,
-                           env: dict[str, str], results: list[dict]) -> None:
+                           env: dict[str, str], results: list[dict[str, Any]]) -> None:
     """整条总线连续读不回：503。"""
     e = dict(env, HEALTH_ADDR=f"127.0.0.1:{AGENT_PORT}")
     run = Proc([agent, "-config", config, "-ports", ports,
@@ -216,7 +218,7 @@ def case_agent_serial_down(agent: str, config: str, ports: str, tmp: Path,
     result = None
     started = time.time()
     try:
-        wait_health(AGENT_PORT)
+        _ = wait_health(AGENT_PORT)
         _bus_offline("A", True)
         # 整条总线离线时每个块都要耗尽重试（2 次超时），一个采集周期远长于 5 秒，
         # 因此不能按固定秒数等，而是轮询到「连续 5 个周期全失败」为止。
@@ -233,7 +235,7 @@ def case_agent_serial_down(agent: str, config: str, ports: str, tmp: Path,
     finally:
         _bus_offline("A", False)
         if run.proc.poll() is None:
-            run.stop()
+            _ = run.stop()
 
     if result is None:
         expect(False, "串口整条总线读不回时返回 503", "未能取到健康响应", results)
@@ -243,7 +245,7 @@ def case_agent_serial_down(agent: str, config: str, ports: str, tmp: Path,
     serial = body.get("checks", {}).get("serial", {})
     timeouts = sum(1 for ln in log.splitlines() if "采集周期完成" in ln and '"good":0' in ln)
     detail = (f"HTTP {code} status={body.get('status')} serial={serial} "
-              f"A 总线全失败周期 {timeouts} 个，判定耗时 {elapsed:.0f}s（B 总线应仍为 open）")
+              + f"A 总线全失败周期 {timeouts} 个，判定耗时 {elapsed:.0f}s（B 总线应仍为 open）")
     ok = (code == 503 and body.get("status") == "down"
           and serial.get("buses", {}).get("A") == "closed"
           and serial.get("buses", {}).get("B") == "open")
@@ -251,7 +253,7 @@ def case_agent_serial_down(agent: str, config: str, ports: str, tmp: Path,
 
 
 def case_adapter_ok(adapter: str, config: str, env: dict[str, str],
-                    results: list[dict]) -> None:
+                    results: list[dict[str, Any]]) -> None:
     """proto-adapter 全项正常：200 / ok，evaluate 六个字段齐全。"""
     e = dict(env, HEALTH_ADDR=f"127.0.0.1:{ADAPTER_PORT}",
              PGPASSWORD=env.get("WORKSHOP_ADAPTER_PASSWORD", ""),
@@ -262,7 +264,7 @@ def case_adapter_ok(adapter: str, config: str, env: dict[str, str],
         time.sleep(6)  # 等几条上行进来，让 lastEvalTime 有值
         code, body = wait_health(ADAPTER_PORT)
     finally:
-        run.stop()
+        _ = run.stop()
 
     ev = body.get("checks", {}).get("evaluate", {})
     want = {"queueDepth", "queueCapacity", "dropCount",
@@ -273,26 +275,26 @@ def case_adapter_ok(adapter: str, config: str, env: dict[str, str],
 
 
 def case_adapter_mismatch(adapter: str, config: str, env: dict[str, str],
-                          results: list[dict]) -> None:
+                          results: list[dict[str, Any]]) -> None:
     """活动告警数与库不一致时降级，并给出原因。"""
     e = dict(env, HEALTH_ADDR=f"127.0.0.1:{ADAPTER_PORT}",
              PGPASSWORD=env.get("WORKSHOP_ADAPTER_PASSWORD", ""),
              NOTIFY_ENABLED="false")
     run = Proc([adapter, "-config", config], e)
     try:
-        wait_health(ADAPTER_PORT, timeout=40)
+        _ = wait_health(ADAPTER_PORT, timeout=40)
         time.sleep(8)
         _, before = wait_health(ADAPTER_PORT)
         active = before.get("checks", {}).get("evaluate", {}).get("activeAlarmCount", 0)
         if active == 0:
             before = {"checks": {"evaluate": {"status": "ok"}}}
         # 删掉一条 ACTIVE 告警，制造内存与库不一致。
-        psql("DELETE FROM monitor.alarm WHERE alarm_id = "
-             "(SELECT alarm_id FROM monitor.alarm WHERE status='ACTIVE' LIMIT 1)")
+        _ = psql("DELETE FROM monitor.alarm WHERE alarm_id = "
+             + "(SELECT alarm_id FROM monitor.alarm WHERE status='ACTIVE' LIMIT 1)")
         time.sleep(1)
         code, body = wait_health(ADAPTER_PORT)
     finally:
-        run.stop()
+        _ = run.stop()
 
     ev = body.get("checks", {}).get("evaluate", {})
     detail = f"HTTP {code} status={body.get('status')} evaluate={ev}"
@@ -301,7 +303,7 @@ def case_adapter_mismatch(adapter: str, config: str, env: dict[str, str],
     expect(ok, "活动告警数与库不一致：200 降级并给出原因", detail, results)
 
 
-def case_preflight(results: list[dict]) -> None:
+def case_preflight(results: list[dict[str, Any]]) -> None:
     """make preflight 12 项全过。"""
     out = subprocess.run(["make", "preflight"], capture_output=True, text=True)
     lines = [ln.strip() for ln in out.stdout.splitlines() if ln.strip().startswith(("ok", "FAIL"))]
@@ -311,13 +313,13 @@ def case_preflight(results: list[dict]) -> None:
     expect(ok, "make preflight 12 项全过", detail, results)
 
 
-def case_preflight_fails(results: list[dict]) -> None:
+def case_preflight_fails(results: list[dict[str, Any]]) -> None:
     """停一个容器后 preflight 必须失败并指出是哪一项。"""
-    docker("stop", "deploy-grafana-1")
+    _ = docker("stop", "deploy-grafana-1")
     try:
         out = subprocess.run(["make", "preflight"], capture_output=True, text=True)
     finally:
-        docker("start", "deploy-grafana-1")
+        _ = docker("start", "deploy-grafana-1")
         for _ in range(60):
             try:
                 with urllib.request.urlopen("http://localhost:3000/api/health", timeout=2):
@@ -333,12 +335,12 @@ def case_preflight_fails(results: list[dict]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="015 验收")
-    parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
-    parser.add_argument("--adapter", required=True, help="proto-adapter 可执行文件")
-    parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
-    parser.add_argument("--ports", default=".pty/agent-ports.json")
-    parser.add_argument("--evidence", default="docs/evidence/015")
-    parser.add_argument("--env-file", default=".env")
+    _ = parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
+    _ = parser.add_argument("--adapter", required=True, help="proto-adapter 可执行文件")
+    _ = parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
+    _ = parser.add_argument("--ports", default=".pty/agent-ports.json")
+    _ = parser.add_argument("--evidence", default="docs/evidence/015")
+    _ = parser.add_argument("--env-file", default=".env")
     args = parser.parse_args()
 
     evidence = Path(args.evidence)
@@ -349,7 +351,7 @@ def main() -> int:
     env = os.environ.copy()
     env.update(load_env(Path(args.env_file)))
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     try:
         start_broker()
         print("edge-agent：")
@@ -373,7 +375,7 @@ def main() -> int:
         "passed": passed,
         "cases": results,
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for leftover in tmp.glob("*"):
         leftover.unlink()
