@@ -1,0 +1,586 @@
+<title>config 源码结构图</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Layout: one diagram hero on a 1280 viewBox (horizontally scrollable), detail table beneath */
+  :root {
+    --bg:          #f5f5f5;
+    --surface:     #ececec;
+    --ink:         #2d3142;
+    --muted:       #4f5d75;
+    --soft:        #5a6580;
+    --rule:        rgba(45, 49, 66, 0.12);
+    --rule-solid:  #bfc0c0;
+    --accent:      #bf4520;
+    --accent-tint: rgba(191, 69, 32, 0.08);
+    --dot:         rgba(45, 49, 66, 0.10);
+    --fill-soft:   rgba(45, 49, 66, 0.03);
+    --fill-ext:    rgba(79, 93, 117, 0.10);
+
+    --font-sans:  'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-serif: 'Instrument Serif', 'Noto Serif', 'Noto Serif SC', serif;
+    --font-mono:  'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:          #2d3142;
+      --surface:     #393e53;
+      --ink:         #f5f5f5;
+      --muted:       #bfc0c0;
+      --soft:        #949eb2;
+      --rule:        rgba(245, 245, 245, 0.12);
+      --rule-solid:  rgba(191, 192, 192, 0.25);
+      --accent:      #f08a59;
+      --accent-tint: rgba(240, 138, 89, 0.10);
+      --link:        #739fdf;
+      --dot:         rgba(245, 245, 245, 0.10);
+      --fill-soft:   rgba(245, 245, 245, 0.045);
+      --fill-ext:    rgba(191, 192, 192, 0.12);
+      color-scheme: dark;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg:          #2d3142;
+    --surface:     #393e53;
+    --ink:         #f5f5f5;
+    --muted:       #bfc0c0;
+    --soft:        #949eb2;
+    --rule:        rgba(245, 245, 245, 0.12);
+    --rule-solid:  rgba(191, 192, 192, 0.25);
+    --accent:      #f08a59;
+    --accent-tint: rgba(240, 138, 89, 0.10);
+    --dot:         rgba(245, 245, 245, 0.10);
+    --fill-soft:   rgba(245, 245, 245, 0.045);
+    --fill-ext:    rgba(191, 192, 192, 0.12);
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.65;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 40px 64px;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    min-width: 0;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  h1 {
+    font-family: var(--font-serif);
+    font-size: clamp(1.9rem, 3vw + 0.9rem, 2.75rem);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.12;
+    text-wrap: balance;
+    margin-bottom: 18px;
+  }
+
+  .lede {
+    max-width: 64ch;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  h2 {
+    font-family: var(--font-serif);
+    font-size: 1.5rem;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+    margin-bottom: 8px;
+    text-wrap: balance;
+  }
+
+  .note {
+    max-width: 66ch;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  .note code, .lede code {
+    font-family: var(--font-mono);
+    font-size: 0.87em;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--ink);
+    word-break: break-word;
+  }
+
+  /* Diagram keeps its readable width on a phone; the wrapper scrolls, never the page. */
+  figure.diagram { margin: 0; min-width: 0; }
+
+  .diagram-container {
+    width: 100%;
+    overflow-x: auto;
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+  }
+
+  svg.diagram {
+    width: 100%;
+    min-width: 1280px;
+    display: block;
+    font-family: var(--font-sans);
+  }
+
+  @media print {
+    .diagram-container { overflow-x: visible; }
+    svg.diagram { min-width: 0; }
+  }
+
+  /* ---- SVG tokens: every fill/stroke reads from the same token set as the page ---- */
+  .bg-rect    { fill: var(--bg); }
+  .dot-c      { fill: var(--dot); }
+  .n-mask     { fill: var(--bg); }
+  .n-default  { fill: var(--bg); stroke: var(--rule-solid); stroke-width: 1; }
+  .n-ext      { fill: var(--fill-ext); stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 3; }
+  .n-focal    { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 1.2; }
+  .tag-box    { fill: none; stroke-width: 0.8; }
+  .tag-box-default { stroke: var(--soft); stroke-opacity: 0.4; }
+  .tag-box-focal   { stroke: var(--accent); stroke-opacity: 0.5; }
+  .tag-text   { font-family: var(--font-mono); font-size: 7px; font-weight: 500; letter-spacing: 0.08em; }
+  .tag-text-default { fill: var(--soft); }
+  .tag-text-focal   { fill: var(--accent); }
+  .n-name     { font-family: var(--font-sans); font-size: 12px; font-weight: 600; fill: var(--ink); }
+  .n-sub      { font-family: var(--font-mono); font-size: 9px; font-weight: 400; fill: var(--muted); }
+  .band       { fill: var(--fill-soft); stroke: var(--rule); stroke-width: 0.8; }
+  .band-name  { font-family: var(--font-sans); font-size: 12px; font-weight: 600; fill: var(--ink); }
+  .band-meta  { font-family: var(--font-mono); font-size: 9px; font-weight: 400; fill: var(--soft); }
+  .chip       { fill: var(--bg); stroke: var(--rule); stroke-width: 0.8; }
+  .chip-name  { font-family: var(--font-mono); font-size: 12px; font-weight: 500; fill: var(--ink); }
+  .chip-meta  { font-family: var(--font-mono); font-size: 9px; font-weight: 400; fill: var(--soft); }
+  .arrow      { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+  .arrow-accent { fill: none; stroke: var(--accent); stroke-width: 1.4; }
+  .mk         { fill: var(--muted); }
+  .mk-accent  { fill: var(--accent); }
+  .lbl-mask   { fill: var(--bg); }
+  .lbl        { font-family: var(--font-mono); font-size: 8px; font-weight: 400; letter-spacing: 0.06em; fill: var(--soft); }
+  .lbl-zh     { font-family: var(--font-sans); font-size: 12px; font-weight: 500; fill: var(--soft); }
+  .lbl-accent { fill: var(--accent); }
+  .zone       { fill: var(--fill-soft); stroke: var(--rule); stroke-width: 0.8; }
+  .zone-mask  { fill: var(--bg); }
+  .zone-lbl   { font-family: var(--font-mono); font-size: 7px; font-weight: 500; letter-spacing: 0.14em; fill: var(--soft); }
+  .legend-sep { stroke: var(--rule); stroke-width: 0.8; }
+  .legend-lbl { font-family: var(--font-mono); font-size: 8px; font-weight: 500; letter-spacing: 0.14em; fill: var(--muted); }
+  .legend-txt { font-family: var(--font-mono); font-size: 8px; font-weight: 400; letter-spacing: 0.06em; fill: var(--soft); }
+  .swatch     { stroke-width: 1; }
+  .sw-focal   { fill: var(--accent-tint); stroke: var(--accent); }
+  .sw-ext     { fill: var(--fill-ext); stroke: var(--muted); stroke-dasharray: 4 3; }
+  .sw-comp    { fill: var(--bg); stroke: var(--rule-solid); }
+
+  /* ---- Table ---- */
+  .table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 720px;
+    font-size: 14px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+
+  thead th {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface);
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  td.file {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--ink);
+  }
+
+  td.num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+
+  td.exp {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.75;
+  }
+
+  .chip-tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--rule-solid);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  tfoot td {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--soft);
+    background: var(--surface);
+    border-bottom: none;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .boundary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .boundary > div {
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 18px 20px;
+    min-width: 0;
+  }
+
+  .boundary h3 {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .boundary p {
+    font-size: 13.5px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .boundary .k {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--soft);
+    display: block;
+    margin-bottom: 8px;
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Architecture · Go package</p>
+    <h1>config 源码结构图</h1>
+    <p class="lede">
+      <strong>config 的作用是「载入 → 校验 → 投影」。</strong>
+      它把 <code>config/</code> 下的点表、阈值、主题模板读成结构体，用 V-01~V-12 逐条判合格，
+      再投影成 <code>02_seed.sql</code> 交给 psql。全部判定在文件里完成，不碰数据库。
+    </p>
+  </header>
+
+  <figure class="diagram">
+    <div class="diagram-container">
+      <svg class="diagram" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-labelledby="cfgstruct-title cfgstruct-desc">
+        <title id="cfgstruct-title">config 源码结构图</title>
+        <desc id="cfgstruct-desc">internal/config 六个 Go 文件按载入、校验、投影三层职责展开，读取 config/ 下的点表与阈值、跑 V-01~V-12 校验、产出 02_seed.sql，外部只依赖 Go 标准库，被 internal/agent 与三个 cmd 入口引用而 internal/adapter 尚未引用。</desc>
+
+        <defs>
+          <pattern id="cfgstruct-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle class="dot-c" cx="1" cy="1" r="0.9"/>
+          </pattern>
+          <marker id="cfgstruct-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon class="mk" points="0 0, 8 3, 0 6"/>
+          </marker>
+          <marker id="cfgstruct-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon class="mk-accent" points="0 0, 8 3, 0 6"/>
+          </marker>
+        </defs>
+
+        <rect class="bg-rect" x="0" y="0" width="1280" height="720"/>
+        <rect x="0" y="0" width="1280" height="720" fill="url(#cfgstruct-dots)"/>
+
+        <!-- Zone: consumers tier (drawn before arrows and nodes) -->
+        <rect class="zone" x="912" y="164" width="336" height="432" rx="8"/>
+        <rect class="zone-mask" x="928" y="168" width="76" height="12" rx="2"/>
+        <text class="zone-lbl" x="966" y="177" text-anchor="middle">CONSUMERS</text>
+
+        <!-- Arrows (behind boxes) -->
+        <line class="arrow" x1="280" y1="388" x2="376" y2="388" marker-end="url(#cfgstruct-arrow)"/>
+        <line class="arrow-accent" x1="592" y1="184" x2="592" y2="112" marker-end="url(#cfgstruct-arrow-accent)"/>
+        <path class="arrow" d="M 808,320 H 860 Q 868,320 868,312 V 260 Q 868,252 876,252 H 928" marker-end="url(#cfgstruct-arrow)"/>
+        <path class="arrow" d="M 808,456 H 860 Q 868,456 868,464 V 516 Q 868,524 876,524 H 928" marker-end="url(#cfgstruct-arrow)"/>
+
+        <!-- Arrow labels: opaque masks, 8px gap from every stroke -->
+        <rect class="lbl-mask" x="308" y="364" width="40" height="16" rx="2"/>
+        <text class="lbl-zh" x="328" y="376" text-anchor="middle">读取</text>
+
+        <rect class="lbl-mask" x="600" y="140" width="88" height="16" rx="2"/>
+        <text class="lbl-zh lbl-accent" x="644" y="152" text-anchor="middle">唯一外部依赖</text>
+
+        <rect class="lbl-mask" x="816" y="280" width="44" height="12" rx="2"/>
+        <text class="lbl" x="838" y="289" text-anchor="middle">IMPORT</text>
+
+        <!-- Node: Go 标准库 (external) -->
+        <rect class="n-mask" x="472" y="32" width="240" height="80" rx="6"/>
+        <rect class="n-ext" x="472" y="32" width="240" height="80" rx="6"/>
+        <rect class="tag-box tag-box-default" x="480" y="40" width="48" height="12" rx="2"/>
+        <text class="tag-text tag-text-default" x="504" y="49" text-anchor="middle">EXTERNAL</text>
+        <text class="n-name" x="592" y="78" text-anchor="middle">Go 标准库</text>
+        <text class="n-sub" x="592" y="94" text-anchor="middle">encoding/json · regexp · sort</text>
+
+        <!-- Node: config/ 配置资产 (input container, left-aligned contents) -->
+        <rect class="n-mask" x="48" y="228" width="232" height="320" rx="6"/>
+        <rect class="n-default" x="48" y="228" width="232" height="320" rx="6"/>
+        <rect class="tag-box tag-box-default" x="56" y="236" width="44" height="12" rx="2"/>
+        <text class="tag-text tag-text-default" x="78" y="245" text-anchor="middle">CONFIG</text>
+        <text class="n-name" x="64" y="268">config/ 配置资产</text>
+
+        <rect class="chip" x="64" y="284" width="200" height="48" rx="4"/>
+        <text class="chip-name" x="76" y="306">terminals/</text>
+        <text class="chip-meta" x="76" y="322">ESN-ZX-000{1..5}</text>
+
+        <rect class="chip" x="64" y="344" width="200" height="48" rx="4"/>
+        <text class="chip-name" x="76" y="366">thresholds.json</text>
+        <text class="chip-meta" x="76" y="382">V-11 rule templates</text>
+
+        <rect class="chip" x="64" y="404" width="200" height="48" rx="4"/>
+        <text class="chip-name" x="76" y="426">topics.json</text>
+        <text class="chip-meta" x="76" y="442">MQTT_TOPIC_SCHEME</text>
+
+        <rect class="chip" x="64" y="464" width="200" height="48" rx="4"/>
+        <text class="chip-name" x="76" y="486">adapter.json</text>
+        <text class="chip-meta" x="76" y="502">broker · db · queue</text>
+
+        <!-- Node: internal/config (FOCAL — the package whose role this diagram states) -->
+        <rect class="n-mask" x="376" y="184" width="432" height="408" rx="6"/>
+        <rect class="n-focal" x="376" y="184" width="432" height="408" rx="6"/>
+        <rect class="tag-box tag-box-focal" x="384" y="192" width="44" height="12" rx="2"/>
+        <text class="tag-text tag-text-focal" x="406" y="201" text-anchor="middle">SHARED</text>
+        <text class="n-name" x="400" y="226">internal/config</text>
+        <text class="n-sub" x="400" y="242">load · validate · seed · 6 files · 1084 LOC</text>
+
+        <!-- Band: 载入 -->
+        <rect class="band" x="392" y="256" width="400" height="96" rx="4"/>
+        <text class="band-name" x="404" y="282">载入</text>
+        <text class="band-meta" x="780" y="282" text-anchor="end">252 LOC · 2 files</text>
+        <rect class="chip" x="404" y="296" width="184" height="48" rx="4"/>
+        <text class="chip-name" x="416" y="320">config.go</text>
+        <text class="chip-meta" x="416" y="336">184 LOC</text>
+        <rect class="chip" x="604" y="296" width="184" height="48" rx="4"/>
+        <text class="chip-name" x="616" y="320">adapter.go</text>
+        <text class="chip-meta" x="616" y="336">68 LOC</text>
+
+        <!-- Band: 校验 -->
+        <rect class="band" x="392" y="360" width="400" height="124" rx="4"/>
+        <text class="band-name" x="404" y="386">校验</text>
+        <text class="band-meta" x="780" y="386" text-anchor="end">644 LOC · 3 files · V-01~V-12</text>
+        <rect class="chip" x="404" y="400" width="116" height="48" rx="4"/>
+        <text class="chip-name" x="412" y="424">validate.go</text>
+        <text class="chip-meta" x="412" y="440">470 LOC</text>
+        <rect class="chip" x="536" y="400" width="116" height="48" rx="4"/>
+        <text class="chip-name" x="544" y="424">threshold.go</text>
+        <text class="chip-meta" x="544" y="440">121 LOC</text>
+        <rect class="chip" x="668" y="400" width="116" height="48" rx="4"/>
+        <text class="chip-name" x="676" y="424">topics.go</text>
+        <text class="chip-meta" x="676" y="440">53 LOC</text>
+        <text class="band-meta" x="404" y="470">Report · Issue · Validate · ValidateTerminal</text>
+
+        <!-- Band: 投影 -->
+        <rect class="band" x="392" y="492" width="400" height="84" rx="4"/>
+        <text class="band-name" x="404" y="518">投影</text>
+        <text class="band-meta" x="780" y="518" text-anchor="end">188 LOC · 1 file</text>
+        <rect class="chip" x="404" y="532" width="116" height="40" rx="4"/>
+        <text class="chip-name" x="412" y="550">seed.go</text>
+        <text class="chip-meta" x="412" y="564">188 LOC</text>
+        <text class="band-meta" x="536" y="556">WriteSeedSQL → 02_seed.sql → make seed</text>
+
+        <!-- Nodes: consumers -->
+        <rect class="n-mask" x="928" y="196" width="304" height="112" rx="6"/>
+        <rect class="n-default" x="928" y="196" width="304" height="112" rx="6"/>
+        <rect class="tag-box tag-box-default" x="936" y="204" width="32" height="12" rx="2"/>
+        <text class="tag-text tag-text-default" x="952" y="213" text-anchor="middle">EDGE</text>
+        <text class="n-name" x="1080" y="248" text-anchor="middle">internal/agent</text>
+        <text class="n-sub" x="1080" y="266" text-anchor="middle">poller · codec · uplink · cache</text>
+
+        <rect class="n-mask" x="928" y="332" width="304" height="112" rx="6"/>
+        <rect class="n-default" x="928" y="332" width="304" height="112" rx="6"/>
+        <rect class="tag-box tag-box-default" x="936" y="340" width="52" height="12" rx="2"/>
+        <text class="tag-text tag-text-default" x="962" y="349" text-anchor="middle">PLATFORM</text>
+        <text class="n-name" x="1080" y="384" text-anchor="middle">internal/adapter</text>
+        <text class="n-sub" x="1080" y="402" text-anchor="middle">ingest · evaluate · state</text>
+        <text class="chip-meta" x="1080" y="420" text-anchor="middle">does not import config</text>
+
+        <rect class="n-mask" x="928" y="468" width="304" height="112" rx="6"/>
+        <rect class="n-default" x="928" y="468" width="304" height="112" rx="6"/>
+        <rect class="tag-box tag-box-default" x="936" y="476" width="36" height="12" rx="2"/>
+        <text class="tag-text tag-text-default" x="954" y="485" text-anchor="middle">ENTRY</text>
+        <text class="n-name" x="1080" y="520" text-anchor="middle">cmd/ 三个入口</text>
+        <text class="n-sub" x="1080" y="538" text-anchor="middle">edge-agent · proto-adapter · config-tool</text>
+
+        <!-- Legend: horizontal bottom strip -->
+        <line class="legend-sep" x1="30" y1="652" x2="1250" y2="652"/>
+        <text class="legend-lbl" x="30" y="676">LEGEND</text>
+
+        <rect class="swatch sw-focal" x="120" y="664" width="28" height="16" rx="2"/>
+        <text class="legend-txt" x="158" y="675">FOCAL</text>
+
+        <rect class="swatch sw-ext" x="340" y="664" width="28" height="16" rx="2"/>
+        <text class="legend-txt" x="378" y="675">EXTERNAL</text>
+
+        <rect class="swatch sw-comp" x="560" y="664" width="28" height="16" rx="2"/>
+        <text class="legend-txt" x="598" y="675">COMPONENT</text>
+
+        <line class="arrow" x1="780" y1="672" x2="804" y2="672" marker-end="url(#cfgstruct-arrow)"/>
+        <text class="legend-txt" x="818" y="675">IMPORT / READ</text>
+
+        <line class="arrow-accent" x1="1000" y1="672" x2="1024" y2="672" marker-end="url(#cfgstruct-arrow-accent)"/>
+        <text class="legend-txt" x="1038" y="675">BOUNDARY CLAIM</text>
+      </svg>
+    </div>
+  </figure>
+
+  <section>
+    <h2>六个文件各干一件事</h2>
+    <p class="note">
+      行数是 <code>wc -l</code> 的结果。校验占了 1084 行里的 644 行——这个包的重量在判定，不在读文件。
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th>职责</th>
+            <th>行数</th>
+            <th>导出符号</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="file">config.go</td>
+            <td><span class="chip-tag">载入</span></td>
+            <td class="num">184</td>
+            <td class="exp">Terminal · Bus · Device · Block · Point<br>ThresholdFile · ThresholdRule<br>TopicFile · TopicSchemes<br>LoadTerminal · LoadTerminalDir<br>LoadThresholds · LoadTopics</td>
+            <td>点表与阈值、主题模板的结构体定义和读取入口。字段与接口规范 §3.7 / §11.1 一一对应。</td>
+          </tr>
+          <tr>
+            <td class="file">adapter.go</td>
+            <td><span class="chip-tag">载入</span></td>
+            <td class="num">68</td>
+            <td class="exp">Adapter · LoadAdapter</td>
+            <td>接入服务的进程级参数：Broker 地址、数据库连接、队列容量。口令不进配置文件，只从环境变量取。</td>
+          </tr>
+          <tr>
+            <td class="file">validate.go</td>
+            <td><span class="chip-tag">校验</span></td>
+            <td class="num">470</td>
+            <td class="exp">Severity · Issue · Report<br>Validate · ValidateTerminal</td>
+            <td>V-01~V-10 的落点，加上 <code>Report</code> 的汇总统计。<code>ValidateTerminal</code> 只跑单台终端，供 edge-agent 启动时用。</td>
+          </tr>
+          <tr>
+            <td class="file">threshold.go</td>
+            <td><span class="chip-tag">校验</span></td>
+            <td class="num">121</td>
+            <td class="exp">无导出<br>validateThresholds<br>validateRuleScope</td>
+            <td>V-11 阈值规则：字段合法性、pointCodes 能否落到点上、同一作用域内同一告警类型不重复。</td>
+          </tr>
+          <tr>
+            <td class="file">topics.go</td>
+            <td><span class="chip-tag">校验</span></td>
+            <td class="num">53</td>
+            <td class="exp">无导出<br>validateTopics</td>
+            <td>两套主题命名方案都齐备、带 <code>{esn}</code> 占位符、同方案内三类主题互不相同。模板本身是冻结线 A，这里只校验不改写。</td>
+          </tr>
+          <tr>
+            <td class="file">seed.go</td>
+            <td><span class="chip-tag">投影</span></td>
+            <td class="num">188</td>
+            <td class="exp">WriteSeedSQL</td>
+            <td>把载入并校验过的配置写成 <code>02_seed.sql</code>。只产 SQL 文本，不连数据库——导入由 <code>make seed</code> 交给 psql。</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>合计</td>
+            <td>3 层职责</td>
+            <td class="num">1084</td>
+            <td>21 个导出符号</td>
+            <td>6 个文件，1 个包</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>依赖边界</h2>
+    <p class="note">
+      这个包之所以能被边缘侧和平台侧同时引用，靠的是它不反过来依赖任何一方。
+    </p>
+    <div class="boundary">
+      <div>
+        <span class="k">In</span>
+        <h3>只吃配置文件</h3>
+        <p>输入全部来自 <code>config/</code> 目录：<code>terminals/*.json</code>、<code>thresholds.json</code>、<code>topics.json</code>、<code>adapter.json</code>。配置文件是唯一权威源，数据库只是供界面读取的投影。</p>
+      </div>
+      <div>
+        <span class="k">Deps</span>
+        <h3>只依赖标准库</h3>
+        <p><code>encoding/json</code>、<code>fmt</code>、<code>io</code>、<code>os</code>、<code>path/filepath</code>、<code>regexp</code>、<code>sort</code>、<code>strconv</code>、<code>strings</code>。<code>workshop-monitor/</code> 下的包一个都不 import——它是共享层的前提。</p>
+      </div>
+      <div>
+        <span class="k">Out</span>
+        <h3>被边缘侧与装配层共用</h3>
+        <p>8 个文件 import 它：<code>internal/agent</code> 3 个（poller · codec · uplink），<code>cmd/</code> 5 个（三个 main 加 serial、settings）。agent 只消费结构体，载入与校验发生在 <code>cmd/</code> 装配时。<code>internal/adapter</code> 一个都不 import——平台侧只在 <code>cmd/proto-adapter</code> 读一次 <code>LoadAdapter</code> 与 <code>LoadTopics</code>。</p>
+      </div>
+    </div>
+  </section>
+</div>
