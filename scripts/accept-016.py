@@ -212,7 +212,7 @@ def seed_seq_files(tmp: Path) -> None:
     """
     for terminal in TERMINALS:
         high = int(psql(
-            f"SELECT coalesce(max(seq), 0) FROM monitor.raw_message " +
+            "SELECT coalesce(max(seq), 0) FROM monitor.raw_message " +
             f"WHERE terminal_id = '{terminal}'") or 0)
         _ = (tmp / f"seq-{terminal}").write_text(str(high), encoding="utf-8")
 
@@ -475,7 +475,7 @@ def case_backfill_continuity() -> tuple[bool, str]:
     wrong = int(psql(
         f"SELECT count(*) FROM monitor.measurement WHERE {scope} " +
         "AND receive_time - collect_time < interval '1 second'") or 0)
-    lag = psql(f"SELECT round(avg(extract(epoch FROM (receive_time - collect_time)))) " +
+    lag = psql("SELECT round(avg(extract(epoch FROM (receive_time - collect_time)))) " +
                f"FROM monitor.measurement WHERE {scope}")
     lag_avg = float(lag) if lag else 0.0
 
@@ -567,7 +567,7 @@ def case_collect_time_axis() -> tuple[bool, str]:
         else:
             bad.append(f"{view}（未分类）")
     ok = not bad
-    return ok, (f"measurement 的 collect_time/receive_time 分列；" +
+    return ok, ("measurement 的 collect_time/receive_time 分列；" +
                 f"业务视图误用 receive_time 的：{bad or '无'}；" +
                 f"按到达顺序、豁免：{exempted or '无'}")
 
@@ -621,8 +621,8 @@ def case_retention_really_drops() -> tuple[bool, str]:
     _ = psql("INSERT INTO monitor.measurement " +
              "(collect_time, terminal_id, bus_id, slave_addr, point_code, point_id, " +
              " si_type, seq, value, quality, backfill, send_time, receive_time) " +
-             f"SELECT now() - interval '50 days' + g * interval '1 second', " +
-             f"       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', " +
+             "SELECT now() - interval '50 days' + g * interval '1 second', " +
+             "       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', " +
              f"       {AGG_SEQ} + g, 2.0, 0, FALSE, now(), now() " +
              "FROM generate_series(1, 5) g")
     # 它是过程不是函数，必须 CALL——写成 SELECT 会被 psql 报「is a procedure」。
@@ -639,8 +639,8 @@ def case_retention_really_drops() -> tuple[bool, str]:
     _ = psql("INSERT INTO monitor.measurement " +
              "(collect_time, terminal_id, bus_id, slave_addr, point_code, point_id, " +
              " si_type, seq, value, quality, backfill, send_time, receive_time) " +
-             f"SELECT now() - interval '12 days' + g * interval '1 second', " +
-             f"       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', " +
+             "SELECT now() - interval '12 days' + g * interval '1 second', " +
+             "       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', " +
              f"       {DET_SEQ} + g, 1.0, 0, FALSE, now(), now() " +
              "FROM generate_series(1, 10) g")
     counter = f"seq BETWEEN {DET_SEQ + 1} AND {DET_SEQ + 10}"

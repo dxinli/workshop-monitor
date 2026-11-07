@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 
 import uvicorn
-
 from api import build_app
 from store import RecordStore
 

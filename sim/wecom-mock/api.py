@@ -18,10 +18,9 @@ from __future__ import annotations
 import time
 from typing import Annotated, Any
 
+from card import Alarm, NotifyCard, render_card
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
-
-from card import Alarm, NotifyCard, render_card
 from store import Record, RecordStore
 
 DEFAULT_LIMIT = 50

@@ -127,7 +127,7 @@ def render_card(alarm: Alarm) -> str:
     )
     threshold = threshold_text(alarm)
     threshold_row = (
-        f'<div class="row"><span class="k">阈值</span>'
+        '<div class="row"><span class="k">阈值</span>'
         + f'<span class="v">{escape(threshold)}</span></div>'
         if threshold
         else ""
@@ -139,5 +139,5 @@ def render_card(alarm: Alarm) -> str:
         + f"{escape(level_label(alarm))}</span>{badge}</div>"
         + f'<div class="title">{escape(card_title(alarm))}</div>'
         + f'<div class="body">{rows}{threshold_row}</div>'
-        + f"</div>"
+        + "</div>"
     )

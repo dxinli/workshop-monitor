@@ -23,8 +23,6 @@
 
 from __future__ import annotations
 
-from typing import Any, cast, override
-
 import argparse
 import json
 import os
@@ -36,6 +34,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any, cast, override
 
 SIM = "http://127.0.0.1:8080"
 TERMINAL = "ESN-ZX-0001"
@@ -93,7 +92,7 @@ class Subscriber:
         return [
             "docker", "exec", "-e", "PW=" + env.get("MQTT_WORKSHOP_ADAPTER_PASSWORD", ""),
             BROKER_CONTAINER, "sh", "-c",
-            f'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" ' +
+            'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" ' +
             f'-t "{topic_filter}" -v -q {qos}{flag}',
         ]
 

@@ -5,11 +5,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 

@@ -15,9 +15,6 @@
 """
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
-
 import argparse
 import importlib.util
 import json
@@ -27,7 +24,9 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -150,10 +149,10 @@ POINT_META = load_point_meta()
 
 def alarm_rows(dedupe_key: str, since: str) -> list[dict[str, Any]]:
     return rows_json(
-        f"SELECT alarm_id, dedupe_key, status, level, trigger_value, threshold_value, "
-        + f"       occur_time::text, recover_time::text, trigger_count "
+        "SELECT alarm_id, dedupe_key, status, level, trigger_value, threshold_value, "
+        + "       occur_time::text, recover_time::text, trigger_count "
         + f"FROM monitor.alarm WHERE dedupe_key = '{dedupe_key}' AND occur_time >= '{since}' "
-        + f"ORDER BY occur_time")
+        + "ORDER BY occur_time")
 
 
 def wait_alarm(dedupe_key: str, since: str, timeout: float = 40.0) -> list[dict[str, Any]]:
@@ -169,7 +168,7 @@ def wait_alarm(dedupe_key: str, since: str, timeout: float = 40.0) -> list[dict[
 def measurement_hits(eng_value: float, since: str, until: str | None = None) -> int:
     upper = f"AND collect_time <= '{until}'" if until else ""
     return int(psql(
-        f"SELECT count(*) FROM monitor.measurement "
+        "SELECT count(*) FROM monitor.measurement "
         + f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
         + f"  AND value = {eng_value} AND collect_time >= '{since}' {upper}") or 0)
 
@@ -229,9 +228,9 @@ def case_ac04() -> dict[str, Any]:
 
 def latest_alarm(dedupe_key: str) -> dict[str, Any] | None:
     rows = rows_json(
-        f"SELECT alarm_id, status, occur_time::text, recover_time::text, trigger_count "
+        "SELECT alarm_id, status, occur_time::text, recover_time::text, trigger_count "
         + f"FROM monitor.alarm WHERE dedupe_key = '{dedupe_key}' "
-        + f"ORDER BY occur_time DESC, alarm_id DESC LIMIT 1")
+        + "ORDER BY occur_time DESC, alarm_id DESC LIMIT 1")
     return rows[0] if rows else None
 
 
@@ -324,7 +323,7 @@ def case_ac08() -> dict[str, Any]:
     time.sleep(25)                               # ≥4 个周期，越限值 300 远超 HH
     range_alarms = (alarm_rows(TEST_KEY, t0) + alarm_rows(TEST_KEY_HH, t0))
     bad_rows = rows_json(
-        f"SELECT collect_time::text, value, quality FROM monitor.measurement "
+        "SELECT collect_time::text, value, quality FROM monitor.measurement "
         + f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
         + f"  AND collect_time >= '{t0}' AND quality <> 0 ORDER BY collect_time")
     sim_write_raw(ESN, POINT, normal)
@@ -336,7 +335,7 @@ def case_ac08() -> dict[str, Any]:
     time.sleep(20)
     fault_alarms = (alarm_rows(TEST_KEY, t1) + alarm_rows(TEST_KEY_HH, t1))
     timeout_rows = rows_json(
-        f"SELECT collect_time::text, quality FROM monitor.measurement "
+        "SELECT collect_time::text, quality FROM monitor.measurement "
         + f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
         + f"  AND collect_time >= '{t1}' AND quality = 2 ORDER BY collect_time")
     _ = sim_delete(f"/api/v1/fault/{ESN}/{m['bus']}")
@@ -465,14 +464,14 @@ def case_mv08(since: str) -> dict[str, Any]:
     不依赖 notify_log.alarm_id 是否回填。
     """
     alarms = rows_json(
-        f"SELECT a.alarm_id, a.level, a.dedupe_key, a.occur_time::text, "
-        + f"       EXISTS(SELECT 1 FROM monitor.notify_log n WHERE "
-        + f"              n.notify_id = 'NT-' || a.terminal_id || '-' || a.point_id || '-' || "
-        + f"              floor(extract(epoch FROM a.occur_time) * 1000)::bigint "
-        + f"              OR n.alarm_id = a.alarm_id) AS logged "
-        + f"FROM monitor.alarm a "
+        "SELECT a.alarm_id, a.level, a.dedupe_key, a.occur_time::text, "
+        + "       EXISTS(SELECT 1 FROM monitor.notify_log n WHERE "
+        + "              n.notify_id = 'NT-' || a.terminal_id || '-' || a.point_id || '-' || "
+        + "              floor(extract(epoch FROM a.occur_time) * 1000)::bigint "
+        + "              OR n.alarm_id = a.alarm_id) AS logged "
+        + "FROM monitor.alarm a "
         + f"WHERE a.level >= 2 AND a.backfill = FALSE AND a.occur_time >= '{since}' "
-        + f"ORDER BY a.alarm_id")
+        + "ORDER BY a.alarm_id")
     if not alarms:
         return {"case": "MV-08", "passed": None, "note": "窗口内无 level≥2 告警，不适用"}
     hit = [a for a in alarms if a["logged"]]
@@ -508,7 +507,7 @@ def publish(env: dict[str, Any], payload: dict[str, Any]) -> None:
 
 def realtime_row() -> dict[str, Any]:
     got = rows_json(
-        f"SELECT value, quality, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
+        "SELECT value, quality, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
         + f"FROM monitor.realtime_value WHERE terminal_id = '{ESN}' AND point_id = '{POINT}'")
     return got[0] if got else {}
 
@@ -519,7 +518,7 @@ def fresh_seq(base: int = 1000) -> int:
     固定字面量 seq 重跑时会被幂等门判 DUPLICATE（首投变重投），
     整个用例的「首投写入」断言就假阴性了。
     """
-    high = int(psql(f"SELECT coalesce(max(seq), 0) FROM monitor.raw_message "
+    high = int(psql("SELECT coalesce(max(seq), 0) FROM monitor.raw_message "
                     + f"WHERE terminal_id = '{ESN}'") or 0)
     return high + base
 
@@ -536,7 +535,7 @@ def case_ac14(env: dict[str, Any]) -> dict[str, Any]:
     time.sleep(2)
     after_old = realtime_row()
     hist = rows_json(
-        f"SELECT seq, value, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
+        "SELECT seq, value, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
         + f"FROM monitor.measurement WHERE seq IN ({s0}, {s0 + 1}) ORDER BY seq")
     not_regressed = (after_old.get("ct_ms") or 0) >= now and after_old.get("value") != 55.5
     ok = len(hist) == 2 and after_new.get("value") == 62.5 and not_regressed
@@ -553,15 +552,15 @@ def case_ac17(env: dict[str, Any], log_tail: Callable[[], str]) -> dict[str, Any
     msg = data_msg(seq, int(time.time() * 1000), 61.5)
     publish(env, msg)
     time.sleep(2)
-    first = {"messageLog": psql(f"SELECT count(*) FROM monitor.message_log "
+    first = {"messageLog": psql("SELECT count(*) FROM monitor.message_log "
                                + f"WHERE terminal_id = '{ESN}' AND seq = {seq}"),
              "measurement": psql(f"SELECT count(*) FROM monitor.measurement WHERE seq = {seq}")}
     publish(env, msg)                           # 原样重投
     time.sleep(2)
-    second = {"messageLog": psql(f"SELECT count(*) FROM monitor.message_log "
+    second = {"messageLog": psql("SELECT count(*) FROM monitor.message_log "
                                 + f"WHERE terminal_id = '{ESN}' AND seq = {seq}"),
               "measurement": psql(f"SELECT count(*) FROM monitor.measurement WHERE seq = {seq}"),
-              "rawMessage": psql(f"SELECT count(*) FROM monitor.raw_message "
+              "rawMessage": psql("SELECT count(*) FROM monitor.raw_message "
                                  + f"WHERE terminal_id = '{ESN}' AND seq = {seq}")}
     dup_seen = "DUPLICATE" in log_tail()        # 重投之后再截日志
     ok = (first["measurement"] == second["measurement"] == "1"

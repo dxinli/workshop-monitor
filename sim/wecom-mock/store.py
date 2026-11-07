@@ -16,11 +16,10 @@ FastAPI 的同步端点跑在线程池里，真的会并发进到这里。
 
 from __future__ import annotations
 
-from typing import Any
-
 import sqlite3
 import threading
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from card import NotifyCard
 
