@@ -28,8 +28,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import argparse
 import json
 import os
@@ -41,6 +39,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 TERMINAL = "ESN-ZX-0001"
 BROKER_CONTAINER = "deploy-mosquitto-1"

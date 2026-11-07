@@ -23,8 +23,6 @@ collectTime 保留、sendTime 更新、backfill=true、PUBACK 才出队。
 
 from __future__ import annotations
 
-from typing import Any
-
 import argparse
 import json
 import os
@@ -35,6 +33,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 TERMINAL = "ESN-ZX-0001"
 BROKER_CONTAINER = "deploy-mosquitto-1"
@@ -93,7 +92,7 @@ class Subscriber:
         cmd = [
             "docker", "exec", "-e", "PW=" + env.get("MQTT_WORKSHOP_ADAPTER_PASSWORD", ""),
             BROKER_CONTAINER, "sh", "-c",
-            f'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" '
+            'mosquitto_sub -h 127.0.0.1 -u workshop_adapter -P "$PW" '
             + f'-t "{topic_filter}" -v -q 1 -R',
         ]
         self.proc: subprocess.Popen[str] = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, bufsize=1)

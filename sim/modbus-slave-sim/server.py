@@ -15,12 +15,11 @@ pymodbus 的 ``response_manipulator`` 只能操作 PDU、不能把 CRC 改坏，
 
 from __future__ import annotations
 
-from typing import Any, override
-
 import asyncio
 import contextlib
 import logging
 import time
+from typing import Any, override
 
 import rtu
 from faults import Action, ActionKind, BusState

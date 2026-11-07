@@ -17,8 +17,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import argparse
 import ast
 import csv
@@ -30,6 +28,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import point_table
 import rtu
