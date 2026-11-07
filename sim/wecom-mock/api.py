@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -58,12 +58,12 @@ def build_app(store: RecordStore) -> FastAPI:
     @app.get("/api/v1/records")
     def records(
         limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
-    ) -> dict:
+    ) -> dict[str, Any]:
         items = [r.as_dict() for r in store.recent(limit)]
         return {"total": store.count(), "count": len(items), "records": items}
 
     @app.delete("/api/v1/records")
-    def clear() -> dict:
+    def clear() -> dict[str, Any]:
         store.clear()
         return {"ok": True, "total": store.count()}
 

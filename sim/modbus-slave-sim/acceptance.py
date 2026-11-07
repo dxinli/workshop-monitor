@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import argparse
 import ast
 import csv
@@ -72,7 +74,7 @@ def read_registers(port: str, slave: int, address: int, count: int) -> ReadResul
     link = serial.Serial(port, baudrate=9600, timeout=READ_TIMEOUT)
     try:
         link.reset_input_buffer()
-        link.write(request)
+        _ = link.write(request)
         head = link.read(3)
         if len(head) < 3:
             return ReadResult(b"", "timeout")
@@ -133,7 +135,7 @@ def split_words(raw: int, width: int) -> list[int]:
     return [(raw >> 16) & 0xFFFF, raw & 0xFFFF]
 
 
-def http(method: str, path: str, body: dict | None = None) -> dict:
+def http(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
         API_BASE + path,
@@ -183,7 +185,7 @@ def seed_sentinels(
             request = _write_request(
                 device.slave_addr, address, split_words(value, point.width)
             )
-            link.write(request)
+            _ = link.write(request)
             if len(link.read(8)) != 8:
                 raise RuntimeError(
                     f"{bus.key} 从站 {device.slave_addr} 测点 {point.code} 写入无应答"
@@ -217,7 +219,7 @@ def check_points(
 ) -> tuple[int, int]:
     """逐点读回哨兵值，写对照表。返回 (总行数, 不一致行数)。"""
     expected = seed_sentinels(tables, ports)
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     mismatches = 0
     for _, table, bus, device, point in iter_points(tables):
         absolute = device.start_addr + point.addr
@@ -308,7 +310,7 @@ def _go_imports(source: Path) -> set[str]:
 class CaseResult:
     name: str
     passed: bool
-    detail: dict
+    detail: dict[str, Any]
 
 
 def sentinel_for_map(tables: list[PointTable]) -> dict[tuple[str, str, int], int]:
@@ -351,7 +353,7 @@ def case_bus_independence(
     if set(ports) != expected_ports:
         problems.append(
             f"端点表键不符：多 {sorted(set(ports) - expected_ports)}，"
-            f"少 {sorted(expected_ports - set(ports))}"
+            + f"少 {sorted(expected_ports - set(ports))}"
         )
 
     observed: dict[int, dict[str, int]] = {}
@@ -374,7 +376,7 @@ def case_bus_independence(
                         f"{bus.key} 从站 {device.slave_addr} 读到 {got}，应为 {want}（串号）"
                     )
 
-    collisions: list[dict] = []
+    collisions: list[dict[str, Any]] = []
     for slave, values in sorted(observed.items()):
         if len(set(values.values())) != len(values):
             collisions.append({"slaveAddr": slave, "values": values})
@@ -399,7 +401,7 @@ def case_runtime_write(tables: list[PointTable], ports: dict[str, str]) -> CaseR
     address = device.start_addr
     before = read_with_retry(ports[bus.key], device.slave_addr, address, 1)
     new_value = 625
-    http(
+    _ = http(
         "PUT",
         f"/api/v1/reg/{bus.terminal_id}/{bus.bus_id}/{device.slave_addr}/{address}",
         {"value": new_value},
@@ -412,7 +414,7 @@ def case_runtime_write(tables: list[PointTable], ports: dict[str, str]) -> CaseR
     )
     multi = next(p for p in device.points if p.width == 2)
     raw = 0x0001_8000  # 高低字不同：拆字顺序写错会读成 0x80000001
-    http(
+    _ = http(
         "PUT",
         f"/api/v1/reg/{bus.terminal_id}/{bus.bus_id}/{device.slave_addr}",
         {"points": [{"code": multi.code, "value": raw}]},
@@ -455,9 +457,9 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
     port = ports[bus.key]
     address, count = device.start_addr, device.register_count
     base = f"/api/v1/fault/{bus.terminal_id}/{bus.bus_id}/{device.slave_addr}"
-    cases: dict[str, dict] = {}
+    cases: dict[str, dict[str, Any]] = {}
 
-    http("POST", base, {"mode": "timeout", "count": 1})
+    _ = http("POST", base, {"mode": "timeout", "count": 1})
     started = time.monotonic()
     timeout = read_registers(port, 1, address, count)
     elapsed = time.monotonic() - started
@@ -467,7 +469,7 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
         "noFrame": timeout.frame == b"",
     }
 
-    http("POST", base, {"mode": "exception", "count": 1, "exceptionCode": 2})
+    _ = http("POST", base, {"mode": "exception", "count": 1, "exceptionCode": 2})
     exc83 = read_registers(port, 1, address, count)
     cases["exception_0x83"] = {
         "kind": exc83.kind,
@@ -477,11 +479,11 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
     }
 
     # 0x84：功能码 04 的异常响应。点表只用 03，单独发一条 04 请求取异常帧。
-    http("POST", base, {"mode": "exception", "count": 1, "exceptionCode": 4})
+    _ = http("POST", base, {"mode": "exception", "count": 1, "exceptionCode": 4})
     link = serial.Serial(port, baudrate=9600, timeout=READ_TIMEOUT)
     try:
         link.reset_input_buffer()
-        link.write(rtu.build_register_request(1, 4, 0, 2))
+        _ = link.write(rtu.build_register_request(1, 4, 0, 2))
         frame = link.read(5)
     finally:
         link.close()
@@ -492,7 +494,7 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
         "frame": frame.hex(),
     }
 
-    http("POST", base, {"mode": "crc", "count": 1})
+    _ = http("POST", base, {"mode": "crc", "count": 1})
     bad_crc = read_registers(port, 1, address, count)
     cases["crc"] = {
         "kind": bad_crc.kind,
@@ -501,7 +503,7 @@ def case_faults(tables: list[PointTable], ports: dict[str, str]) -> CaseResult:
         "payloadLooksValid": bad_crc.frame[1:][:2].hex() if bad_crc.frame else None,
     }
 
-    http("DELETE", f"/api/v1/fault/{bus.terminal_id}/{bus.bus_id}")
+    _ = http("DELETE", f"/api/v1/fault/{bus.terminal_id}/{bus.bus_id}")
     restored = read_with_retry(port, 1, address, count)
     cases["restored"] = {"kind": restored.kind}
 
@@ -540,7 +542,7 @@ def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> 
         case_faults(tables, ports),
     ]
     isolation = check_isolation()
-    (evidence / "isolation.txt").write_text(
+    _ = (evidence / "isolation.txt").write_text(
         "通过：sim/ 无 internal/ import，cmd/ 无 sim/ import\n"
         if not isolation
         else "\n".join(isolation) + "\n",
@@ -562,7 +564,7 @@ def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> 
         ],
         "passed": all(r.passed for r in results),
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     for result in results:
@@ -575,12 +577,12 @@ def run_all(tables: list[PointTable], ports: dict[str, str], evidence: Path) -> 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="004 点表核对与验收")
-    parser.add_argument(
+    _ = parser.add_argument(
         "command", choices=["points", "isolation", "faults", "write", "bus", "all"]
     )
-    parser.add_argument("--config", default="config/terminals")
-    parser.add_argument("--ports", default=".pty/agent-ports.json")
-    parser.add_argument("--evidence", default="docs/evidence/004")
+    _ = parser.add_argument("--config", default="config/terminals")
+    _ = parser.add_argument("--ports", default=".pty/agent-ports.json")
+    _ = parser.add_argument("--evidence", default="docs/evidence/004")
     args = parser.parse_args(argv)
 
     tables = point_table.load_tree(Path(args.config))
@@ -620,7 +622,7 @@ def main(argv: list[str] | None = None) -> int:
         problems = check_isolation()
         report = evidence / "isolation.txt"
         report.parent.mkdir(parents=True, exist_ok=True)
-        report.write_text(
+        _ = report.write_text(
             "通过：sim/ 无 internal/ import，cmd/ 无 sim/ import\n"
             if not problems
             else "\n".join(problems) + "\n",

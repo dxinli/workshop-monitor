@@ -39,7 +39,9 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from http.client import HTTPResponse
 from pathlib import Path
+from typing import cast
 
 DB = "deploy-timescaledb-1"
 BROKER = "deploy-mosquitto-1"
@@ -66,7 +68,7 @@ def load_env(path: Path) -> dict[str, str]:
     return env
 
 
-def docker(*args: str, check: bool = False) -> subprocess.CompletedProcess:
+def docker(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["docker", *args], capture_output=True, text=True, check=check)
 
 
@@ -79,18 +81,18 @@ def psql(sql: str) -> str:
     out = docker("exec", DB, "sh", "-c",
                  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$1"', "_", sql)
     if out.returncode != 0:
-        raise RuntimeError(f"SQL 失败：{sql}\n  {out.stderr.strip()}")
-    return out.stdout.strip()
+        raise RuntimeError(f"SQL 失败：{sql}\n  {(out.stderr or '').strip()}")
+    return (out.stdout or "").strip()
 
 
 def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-_STOP = False
+_stop_requested = False
 
 
-def _on_stop(_signum, _frame) -> None:
+def _on_stop(_signum: int, _frame: object) -> None:
     """收到停止信号只置位，让主循环走 finally 收拾子进程。
 
     不直接退出：SIGTERM 默认处理会立刻终止 Python，finally 不执行，
@@ -98,8 +100,8 @@ def _on_stop(_signum, _frame) -> None:
     现象是「连上了又掉、库里的行数不涨」。
     """
     del _signum, _frame  # signal 回调签名固定
-    global _STOP
-    _STOP = True
+    global _stop_requested
+    _stop_requested = True
 
 
 class Proc:
@@ -110,11 +112,11 @@ class Proc:
     """
 
     def __init__(self, cmd: list[str], env: dict[str, str], label: str):
-        self.label = label
-        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True, env=env)
+        self.label: str = label
+        self.proc: subprocess.Popen[str] = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
         self.lines: list[str] = []
-        self._thread = threading.Thread(target=self._pump, daemon=True)
+        self._thread: threading.Thread = threading.Thread(target=self._pump, daemon=True)
         self._thread.start()
 
     def _pump(self) -> None:
@@ -129,7 +131,7 @@ class Proc:
         if self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
         try:
-            self.proc.wait(timeout=grace)
+            _ = self.proc.wait(timeout=grace)
         except subprocess.TimeoutExpired:
             self.proc.kill()
         self._thread.join(timeout=5)
@@ -139,23 +141,24 @@ class Proc:
         return "\n".join(self.lines[-n:])
 
 
-def http_json(url: str, timeout: float = 5.0) -> tuple[int, dict]:
+def http_json(url: str, timeout: float = 5.0) -> tuple[int, dict[str, object]]:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            return r.status, json.loads(r.read().decode())
+        with cast(HTTPResponse, urllib.request.urlopen(url, timeout=timeout)) as r:
+            payload = cast(dict[str, object], json.loads(r.read().decode()))
+            return r.status, payload
     except urllib.error.HTTPError as exc:
         body = exc.read().decode()
         try:
-            return exc.code, json.loads(body)
+            return exc.code, cast(dict[str, object], json.loads(body))
         except json.JSONDecodeError:
             return exc.code, {"_raw": body}
     except Exception as exc:
         return 0, {"_error": str(exc)}
 
 
-def wait_health(port: int, timeout: float = 40.0) -> tuple[int, dict]:
+def wait_health(port: int, timeout: float = 40.0) -> tuple[int, dict[str, object]]:
     deadline = time.time() + timeout
-    last = (0, {})
+    last: tuple[int, dict[str, object]] = (0, {})
     while time.time() < deadline:
         got = http_json(f"http://127.0.0.1:{port}/healthz", 2)
         if got[0]:
@@ -172,7 +175,7 @@ def ensure_stack() -> None:
     for svc in ("timescaledb", "mosquitto", "node-red"):
         out = docker("ps", "--filter", f"name={svc}", "--filter", "status=running",
                      "--format", "{{.Names}}")
-        if not out.stdout.strip():
+        if not (out.stdout or "").strip():
             raise RuntimeError(f"容器 {svc} 没在跑，先 make up")
     if not psql("SELECT 1"):
         raise RuntimeError("连不上 timescaledb")
@@ -182,8 +185,8 @@ def ensure_pty() -> None:
     if Path(".pty/agent-ports.json").is_file():
         return
     print("生成虚拟串口端点…")
-    subprocess.run(["./scripts/setup-pty.sh"], check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _ = subprocess.run(["./scripts/setup-pty.sh"], check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def start_simulator() -> Proc:
@@ -209,9 +212,9 @@ def seed_seq_files(tmp: Path) -> None:
     """
     for terminal in TERMINALS:
         high = int(psql(
-            f"SELECT coalesce(max(seq), 0) FROM monitor.raw_message "
+            f"SELECT coalesce(max(seq), 0) FROM monitor.raw_message " +
             f"WHERE terminal_id = '{terminal}'") or 0)
-        (tmp / f"seq-{terminal}").write_text(str(high), encoding="utf-8")
+        _ = (tmp / f"seq-{terminal}").write_text(str(high), encoding="utf-8")
 
 
 def start_agents(agent: str, env: dict[str, str], tmp: Path) -> dict[str, Proc]:
@@ -228,7 +231,7 @@ def start_agents(agent: str, env: dict[str, str], tmp: Path) -> dict[str, Proc]:
         runs[terminal] = Proc(cmd, e, f"edge-agent:{terminal}")
     for terminal in TERMINALS:
         try:
-            wait_health(AGENT_HEALTH_PORTS[terminal])
+            _ = wait_health(AGENT_HEALTH_PORTS[terminal])
         except RuntimeError:
             raise RuntimeError(
                 f"{terminal} 未就绪：\n{runs[terminal].tail(30)}") from None
@@ -243,22 +246,22 @@ def start_adapter(adapter: str, env: dict[str, str]) -> Proc:
              PGPASSWORD=env.get("WORKSHOP_ADAPTER_PASSWORD", ""))
     run = Proc([adapter, "-config", "config/adapter.json"], e, "proto-adapter")
     try:
-        wait_health(ADAPTER_PORT)
+        _ = wait_health(ADAPTER_PORT)
     except RuntimeError:
         raise RuntimeError(f"proto-adapter 未就绪：\n{run.tail(30)}") from None
     return run
 
 
 def stop_broker() -> None:
-    docker("stop", BROKER)
+    _ = docker("stop", BROKER)
 
 
 def start_broker() -> None:
-    docker("start", BROKER)
+    _ = docker("start", BROKER)
     for _ in range(80):
         probe = docker("exec", BROKER, "mosquitto_pub",
                        "-h", "127.0.0.1", "-p", "1883", "-t", "/probe", "-m", "x")
-        if "Connection refused" not in probe.stderr:
+        if "Connection refused" not in (probe.stderr or ""):
             return
         time.sleep(0.25)
     raise RuntimeError("Broker 未能就绪")
@@ -280,19 +283,23 @@ def assert_pipeline_flowing(seconds: float = 20.0) -> bool:
     return b > a
 
 
-def sample(runs: dict[str, Proc], tick: int, started: float) -> dict:
+def sample(runs: dict[str, Proc], tick: int, started: float) -> dict[str, object]:
     """采一次全链路的可观测量。只读不改，跑满 2 小时也不该累积出影响。"""
-    row = {
+    agents: dict[str, dict[str, object]] = {}
+    row: dict[str, object] = {
         "tick": tick,
         "elapsedMin": round((time.time() - started) / 60, 2),
         "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-        "agents": {},
+        "agents": agents,
     }
     for terminal in TERMINALS:
         code, body = http_json(
             f"http://127.0.0.1:{AGENT_HEALTH_PORTS[terminal]}/healthz", 3)
-        cache = body.get("checks", {}).get("cache", {}) if code else {}
-        row["agents"][terminal] = {
+        cache: dict[str, object] = {}
+        if code:
+            checks = cast(dict[str, object], body.get("checks", {}))
+            cache = cast(dict[str, object], checks.get("cache", {}))
+        agents[terminal] = {
             "alive": runs[terminal].alive(),
             "health": code,
             "status": body.get("status") if code else None,
@@ -312,33 +319,35 @@ def sample(runs: dict[str, Proc], tick: int, started: float) -> dict:
     return row
 
 
-def persist(ticks: list[dict], path: Path | None = None) -> None:
+def persist(ticks: list[dict[str, object]], path: Path | None = None) -> None:
     """把采样序列写盘。path 不传时由 run_phase 外层注入。"""
     if path is None or not ticks:
         return
-    path.write_text(json.dumps(ticks, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8")
+    _ = path.write_text(json.dumps(ticks, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8")
 
 
 def run_phase(runs: dict[str, Proc], minutes: float, interval: float,
-              started: float, evidence: Path | None = None) -> list[dict]:
+              started: float, evidence: Path | None = None) -> list[dict[str, object]]:
     """连续运行，按间隔采样。任一进程退出就立刻记下来，不中断观察。"""
-    ticks: list[dict] = []
+    ticks: list[dict[str, object]] = []
     deadline = started + minutes * 60
     tick = 0
     print(f"连续运行 {minutes:.0f} 分钟，每 {interval:.0f} 秒采样一次…")
-    while time.time() < deadline and not _STOP:
+    while time.time() < deadline and not _stop_requested:
         row = sample(runs, tick, started)
         ticks.append(row)
         # 每次采样都落盘：跑 2 小时中途挂掉，证据不能只活在内存里。
         persist(ticks, evidence / "timeseries.json" if evidence else None)
-        dead = [t for t, r in row["agents"].items() if not r["alive"]]
+        agents = cast(dict[str, dict[str, object]], row["agents"])
+        db = cast(dict[str, object], row["db"])
+        dead = [t for t, r in agents.items() if not r["alive"]]
         flag = f"  ⚠ 退出：{','.join(dead)}" if dead else ""
-        print(f"  [{tick:3d}] {row['elapsedMin']:6.2f} min  "
-              f"depth={[r['cacheDepth'] for r in row['agents'].values()]}  "
-              f"measurement={row['db']['measurement']}{flag}", flush=True)
+        print(f"  [{tick:3d}] {row['elapsedMin']:6.2f} min  " +
+              f"depth={[r['cacheDepth'] for r in agents.values()]}  " +
+              f"measurement={db['measurement']}{flag}", flush=True)
         tick += 1
-        if _STOP:
+        if _stop_requested:
             print("  收到停止信号，结束连续运行段", flush=True)
             break
         remaining = deadline - time.time()
@@ -350,18 +359,22 @@ def run_phase(runs: dict[str, Proc], minutes: float, interval: float,
 # ── 分析段 ────────────────────────────────────────────────────
 
 
-def case_no_abnormal_exit(ticks: list[dict]) -> tuple[bool, str]:
+def case_no_abnormal_exit(ticks: list[dict[str, object]]) -> tuple[bool, str]:
     """验收 1：连续运行期间采集无中断、无异常退出。"""
-    dead = [(r["tick"], t) for r in ticks for t, a in r["agents"].items()
+    dead = [(r["tick"], t) for r in ticks
+            for t, a in cast(dict[str, dict[str, object]], r["agents"]).items()
             if not a["alive"]]
-    health_bad = [(r["tick"], t) for r in ticks for t, a in r["agents"].items()
+    health_bad = [(r["tick"], t) for r in ticks
+                  for t, a in cast(dict[str, dict[str, object]], r["agents"]).items()
                   if a["health"] != 200]
     # 队列深度回落：末次采样应当归零（补传把积压发完了）。
-    last = ticks[-1]["agents"] if ticks else {}
+    last: dict[str, dict[str, object]] = {}
+    if ticks:
+        last = cast(dict[str, dict[str, object]], ticks[-1]["agents"])
     depths = {t: a["cacheDepth"] for t, a in last.items()}
     drained = all(d == 0 for d in depths.values())
     ok = not dead and not health_bad and drained and len(ticks) >= 2
-    detail = (f"采样 {len(ticks)} 次，异常退出 {len(dead)}，健康异常 {len(health_bad)}，"
+    detail = (f"采样 {len(ticks)} 次，异常退出 {len(dead)}，健康异常 {len(health_bad)}，" +
               f"末次队列深度 {depths}")
     return ok, detail
 
@@ -397,13 +410,13 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
     time.sleep(12)  # 两个采集周期以上
 
     after = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
-    row = psql("SELECT value FROM monitor.realtime_value "
+    row = psql("SELECT value FROM monitor.realtime_value " +
                "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp'")
-    hist = psql("SELECT round(value::numeric, 2) FROM monitor.measurement "
-                "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp' "
+    hist = psql("SELECT round(value::numeric, 2) FROM monitor.measurement " +
+                "WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp' " +
                 "ORDER BY collect_time DESC LIMIT 1")
     if after <= before:
-        return False, (f"链路没有新增数据（{before} → {after}），"
+        return False, (f"链路没有新增数据（{before} → {after}），" +
                        f"读到的值 {row!r}/{hist!r} 可能是上一轮遗留")
     if not row or not hist:
         return False, f"读回为空：实时值={row!r} 历史最新={hist!r}"
@@ -412,8 +425,8 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
     except ValueError:
         return False, f"读回非数值：实时值={row!r} 历史最新={hist!r}"
     ok = abs(got_rt - expect_c) < 1e-6 and abs(got_hist - expect_c) < 1e-6
-    return ok, (f"写入原始 {sentinel}→期望 {expect_c}；"
-                f"实时值 {got_rt}，历史最新 {got_hist}；"
+    return ok, (f"写入原始 {sentinel}→期望 {expect_c}；" +
+                f"实时值 {got_rt}，历史最新 {got_hist}；" +
                 f"期间新增 {after - before} 行")
 
 
@@ -446,7 +459,7 @@ def case_backfill_continuity() -> tuple[bool, str]:
     time.sleep(60)
     after = int(psql("SELECT count(*) FROM monitor.measurement") or 0)
 
-    outage = (f"collect_time >= to_timestamp({t0} / 1000.0) "
+    outage = (f"collect_time >= to_timestamp({t0} / 1000.0) " +
               f"AND collect_time <= to_timestamp({t_recovery} / 1000.0)")
     got = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {outage}") or 0)
     cycles = max(1, int((t_recovery - t0) / 5000))
@@ -460,18 +473,18 @@ def case_backfill_continuity() -> tuple[bool, str]:
     # 逐行设阈值必然误报边界行。而实现若把 collectTime 写成恢复时刻，
     # **平均滞后会趋近 0**——这一条立刻抓住，且不受边界影响。
     wrong = int(psql(
-        f"SELECT count(*) FROM monitor.measurement WHERE {scope} "
+        f"SELECT count(*) FROM monitor.measurement WHERE {scope} " +
         "AND receive_time - collect_time < interval '1 second'") or 0)
-    lag = psql(f"SELECT round(avg(extract(epoch FROM (receive_time - collect_time)))) "
+    lag = psql(f"SELECT round(avg(extract(epoch FROM (receive_time - collect_time)))) " +
                f"FROM monitor.measurement WHERE {scope}")
     lag_avg = float(lag) if lag else 0.0
 
     continuous = abs(got - expected) <= 140  # 允许 ±1 个周期的边界抖动
     ok = (after > before and continuous and backfilled > 0
           and wrong == 0 and lag_avg >= 30)
-    return ok, (f"断网前 {before} 行 → 补传后 {after} 行；"
-                f"断网窗口内 {got} 行（期望 {expected}，{cycles} 周期）；"
-                f"补传 {backfilled} 行，滞后 <1 秒的 {wrong} 行，"
+    return ok, (f"断网前 {before} 行 → 补传后 {after} 行；" +
+                f"断网窗口内 {got} 行（期望 {expected}，{cycles} 周期）；" +
+                f"补传 {backfilled} 行，滞后 <1 秒的 {wrong} 行，" +
                 f"平均滞后 {lag_avg:.0f} 秒（判据 ≥30 秒）")
 
 
@@ -487,21 +500,21 @@ def case_aggregation_matches_detail() -> tuple[bool, str]:
     所以取 20 分钟窗口里**已物化**的部分比对。
     """
     row = psql(
-        "SELECT to_char(m.bucket, 'YYYY-MM-DD HH24:MI'), m.avg_value, d.calc "
-        "FROM monitor.measurement_1m m "
-        "JOIN (SELECT date_trunc('minute', collect_time) AS bucket, "
-        "             round(avg(value)::numeric, 4) AS calc "
-        "      FROM monitor.measurement "
-        "      WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp' "
-        "        AND quality = 0 "
-        "        AND collect_time > now() - interval '20 minutes' "
-        "      GROUP BY 1) d ON d.bucket = m.bucket "
-        "WHERE m.terminal_id='ESN-ZX-0001' AND m.point_id='A.1.motor_temp' "
+        "SELECT to_char(m.bucket, 'YYYY-MM-DD HH24:MI'), m.avg_value, d.calc " +
+        "FROM monitor.measurement_1m m " +
+        "JOIN (SELECT date_trunc('minute', collect_time) AS bucket, " +
+        "             round(avg(value)::numeric, 4) AS calc " +
+        "      FROM monitor.measurement " +
+        "      WHERE terminal_id='ESN-ZX-0001' AND point_id='A.1.motor_temp' " +
+        "        AND quality = 0 " +
+        "        AND collect_time > now() - interval '20 minutes' " +
+        "      GROUP BY 1) d ON d.bucket = m.bucket " +
+        "WHERE m.terminal_id='ESN-ZX-0001' AND m.point_id='A.1.motor_temp' " +
         "ORDER BY 1 DESC LIMIT 5")
     if not row:
         return False, "20 分钟内没有可比对的聚合行（连续聚合尚未物化到该窗口？）"
     lines = [ln for ln in row.splitlines() if ln.strip()]
-    bad = []
+    bad: list[str] = []
     for ln in lines:
         parts = [p.strip() for p in ln.split("|")]
         if len(parts) < 3:
@@ -514,8 +527,8 @@ def case_aggregation_matches_detail() -> tuple[bool, str]:
         if abs(agg - calc) > 1e-4:
             bad.append(ln)
     ok = not bad
-    return ok, (f"比对 {len(lines)} 行（口径 quality=0）"
-                + ("，全部一致" if ok else f"，不一致 {len(bad)} 行：{bad}"))
+    return ok, (f"比对 {len(lines)} 行（口径 quality=0）" +
+                ("，全部一致" if ok else f"，不一致 {len(bad)} 行：{bad}"))
 
 
 def case_collect_time_axis() -> tuple[bool, str]:
@@ -526,8 +539,8 @@ def case_collect_time_axis() -> tuple[bool, str]:
     ——那是「最近收到的原始报文」的运维视图，按到达顺序看才对，不是业务时间轴。
     所以按「视图承载业务时间轴吗」判，不按「出现过 receive_time 吗」判。
     """
-    cols = psql("SELECT string_agg(column_name, ',' ORDER BY column_name) "
-                "FROM information_schema.columns "
+    cols = psql("SELECT string_agg(column_name, ',' ORDER BY column_name) " +
+                "FROM information_schema.columns " +
                 "WHERE table_schema='monitor' AND table_name='measurement'")
     if "collect_time" not in cols or "receive_time" not in cols:
         return False, f"measurement 列：{cols}"
@@ -539,9 +552,10 @@ def case_collect_time_axis() -> tuple[bool, str]:
     arrival_order = {"v_raw_recent"}
 
     views = [v.strip() for v in (psql(
-        "SELECT string_agg(viewname, ',') FROM pg_views "
+        "SELECT string_agg(viewname, ',') FROM pg_views " +
         "WHERE schemaname='monitor'") or "").split(",") if v.strip()]
-    bad, exempted = [], []
+    bad: list[str] = []
+    exempted: list[str] = []
     for view in views:
         body = psql(f"SELECT pg_get_viewdef('monitor.{view}', true)")
         if "receive_time" not in (body or ""):
@@ -553,8 +567,8 @@ def case_collect_time_axis() -> tuple[bool, str]:
         else:
             bad.append(f"{view}（未分类）")
     ok = not bad
-    return ok, (f"measurement 的 collect_time/receive_time 分列；"
-                f"业务视图误用 receive_time 的：{bad or '无'}；"
+    return ok, (f"measurement 的 collect_time/receive_time 分列；" +
+                f"业务视图误用 receive_time 的：{bad or '无'}；" +
                 f"按到达顺序、豁免：{exempted or '无'}")
 
 
@@ -564,10 +578,10 @@ def _retention_jobs() -> list[tuple[str, str, str]]:
     聚合的策略挂在内部物化超表上，名字带内部编号（`_materialized_hypertable_N`），
     重建后会变。按 `drop_after` 认不按名字认——`preflight.sh` 第 11 项同一口径。
     """
-    rows = psql("SELECT job_id || '|' || hypertable_name || '|' || (config->>'drop_after') "
-                "FROM timescaledb_information.jobs "
+    rows = psql("SELECT job_id || '|' || hypertable_name || '|' || (config->>'drop_after') " +
+                "FROM timescaledb_information.jobs " +
                 "WHERE proc_name = 'policy_retention' ORDER BY job_id")
-    out = []
+    out: list[tuple[str, str, str]] = []
     for ln in (rows or "").splitlines():
         parts = ln.strip().split("|")
         if len(parts) == 3:
@@ -604,49 +618,52 @@ def case_retention_really_drops() -> tuple[bool, str]:
 
     # ---- 聚合（先做）：造 50 天前的明细 → 刷新出旧桶 → 跑 30 天策略
     AGG_SEQ = 780000000
-    psql("INSERT INTO monitor.measurement "
-         "(collect_time, terminal_id, bus_id, slave_addr, point_code, point_id, "
-         " si_type, seq, value, quality, backfill, send_time, receive_time) "
-         f"SELECT now() - interval '50 days' + g * interval '1 second', "
-         f"       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', "
-         f"       {AGG_SEQ} + g, 2.0, 0, FALSE, now(), now() "
-         "FROM generate_series(1, 5) g")
+    _ = psql("INSERT INTO monitor.measurement " +
+             "(collect_time, terminal_id, bus_id, slave_addr, point_code, point_id, " +
+             " si_type, seq, value, quality, backfill, send_time, receive_time) " +
+             f"SELECT now() - interval '50 days' + g * interval '1 second', " +
+             f"       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', " +
+             f"       {AGG_SEQ} + g, 2.0, 0, FALSE, now(), now() " +
+             "FROM generate_series(1, 5) g")
     # 它是过程不是函数，必须 CALL——写成 SELECT 会被 psql 报「is a procedure」。
-    psql("CALL refresh_continuous_aggregate('measurement_1m', "
-         "now() - interval '51 days', now() - interval '49 days')")
-    agg_before = int(psql("SELECT count(*) FROM monitor.measurement_1m "
+    _ = psql("CALL refresh_continuous_aggregate('measurement_1m', " +
+             "now() - interval '51 days', now() - interval '49 days')")
+    agg_before = int(psql("SELECT count(*) FROM monitor.measurement_1m " +
                           "WHERE avg_value = 2.0 AND bucket < now() - interval '45 days'") or 0)
-    psql(f"CALL run_job({agg_job[0]})")
-    agg_after = int(psql("SELECT count(*) FROM monitor.measurement_1m "
+    _ = psql(f"CALL run_job({agg_job[0]})")
+    agg_after = int(psql("SELECT count(*) FROM monitor.measurement_1m " +
                          "WHERE avg_value = 2.0 AND bucket < now() - interval '45 days'") or 0)
 
     # ---- 明细：造 12 天前的行 → 跑 7 天策略
     DET_SEQ = 770000000
-    psql("INSERT INTO monitor.measurement "
-         "(collect_time, terminal_id, bus_id, slave_addr, point_code, point_id, "
-         " si_type, seq, value, quality, backfill, send_time, receive_time) "
-         f"SELECT now() - interval '12 days' + g * interval '1 second', "
-         f"       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', "
-         f"       {DET_SEQ} + g, 1.0, 0, FALSE, now(), now() "
-         "FROM generate_series(1, 10) g")
+    _ = psql("INSERT INTO monitor.measurement " +
+             "(collect_time, terminal_id, bus_id, slave_addr, point_code, point_id, " +
+             " si_type, seq, value, quality, backfill, send_time, receive_time) " +
+             f"SELECT now() - interval '12 days' + g * interval '1 second', " +
+             f"       'ESN-ZX-0001', 'A', 1, 'motor_temp', 'A.1.motor_temp', 'YC', " +
+             f"       {DET_SEQ} + g, 1.0, 0, FALSE, now(), now() " +
+             "FROM generate_series(1, 10) g")
     counter = f"seq BETWEEN {DET_SEQ + 1} AND {DET_SEQ + 10}"
     before = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {counter}") or 0)
-    psql(f"CALL run_job({detail_job[0]})")
+    _ = psql(f"CALL run_job({detail_job[0]})")
     after = int(psql(f"SELECT count(*) FROM monitor.measurement WHERE {counter}") or 0)
 
     ok = before == 10 and after == 0 and agg_before > 0 and agg_after == 0
-    return ok, (f"聚合标记行 {agg_before} → 30 天策略后 {agg_after}；"
-                f"明细标记行 {before} → 7 天策略后 {after}；"
+    return ok, (f"聚合标记行 {agg_before} → 30 天策略后 {agg_after}；" +
+                f"明细标记行 {before} → 7 天策略后 {after}；" +
                 f"job：{detail_job[0]}({detail_job[2]}) / {agg_job[0]}({agg_job[2]})")
 
 
-def write_report(path: Path, ticks: list[dict], results: list[dict],
-                 minutes: float) -> None:
+def write_report(path: Path, ticks: list[dict[str, object]],
+                 results: list[dict[str, object]], minutes: float) -> None:
     """试运行报告（验收 7）。手写结论段，实测数据从证据里带出来。"""
     passed = all(r["passed"] for r in results)
-    depths = [t["agents"][TERMINALS[0]]["cacheDepth"] for t in ticks
-              if t["agents"].get(TERMINALS[0])]
-    meas = [t["db"]["measurement"] for t in ticks]
+    depths: list[object] = []
+    for t in ticks:
+        agents = cast(dict[str, dict[str, object]], t["agents"])
+        if agents.get(TERMINALS[0]):
+            depths.append(agents[TERMINALS[0]]["cacheDepth"])
+    meas = [cast(dict[str, object], t["db"])["measurement"] for t in ticks]
     lines = [
         "# 016 试运行报告",
         "",
@@ -661,7 +678,7 @@ def write_report(path: Path, ticks: list[dict], results: list[dict],
         f"| 终端数 | {len(TERMINALS)} 台，全部全程在跑 |",
         f"| 采样次数 | {len(ticks)} 次 |",
         f"| 测量行数增长 | {meas[0] if meas else 0} → {meas[-1] if meas else 0} |",
-        f"| 首台终端队列深度 | 起始 {depths[0] if depths else '—'}，"
+        f"| 首台终端队列深度 | 起始 {depths[0] if depths else '—'}，" +
         f"末次 {depths[-1] if depths else '—'} |",
         "",
         "## 验收结论",
@@ -686,35 +703,43 @@ def write_report(path: Path, ticks: list[dict], results: list[dict],
         "- 本报告不承诺 30 天真实趋势（见任务单偏差）。",
         "",
     ]
-    path.write_text("\n".join(lines), encoding="utf-8")
+    _ = path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="016 试运行与历史检验")
-    parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
-    parser.add_argument("--adapter", required=True, help="proto-adapter 可执行文件")
-    parser.add_argument("--minutes", type=float, default=120, help="连续运行时长，默认 120")
-    parser.add_argument("--interval", type=float, default=300, help="采样间隔秒，默认 300")
-    parser.add_argument("--phase", choices=("run", "check", "all"), default="all",
-                        help="run 只跑连续运行段；check 只跑分析段（复用已有库数据）")
-    parser.add_argument("--evidence", default="docs/evidence/016")
-    parser.add_argument("--env-file", default=".env")
+    _ = parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
+    _ = parser.add_argument("--adapter", required=True, help="proto-adapter 可执行文件")
+    _ = parser.add_argument("--minutes", type=float, default=120,
+                            help="连续运行时长，默认 120")
+    _ = parser.add_argument("--interval", type=float, default=300, help="采样间隔秒，默认 300")
+    _ = parser.add_argument("--phase", choices=("run", "check", "all"), default="all",
+                            help="run 只跑连续运行段；check 只跑分析段（复用已有库数据）")
+    _ = parser.add_argument("--evidence", default="docs/evidence/016")
+    _ = parser.add_argument("--env-file", default=".env")
     args = parser.parse_args()
 
-    evidence = Path(args.evidence)
+    agent_bin = cast(str, args.agent)
+    adapter_bin = cast(str, args.adapter)
+    minutes = cast(float, args.minutes)
+    interval = cast(float, args.interval)
+    phase = cast(str, args.phase)
+    env_file = cast(str, args.env_file)
+
+    evidence = Path(cast(str, args.evidence))
     evidence.mkdir(parents=True, exist_ok=True)
     tmp = evidence / "_tmp"
     tmp.mkdir(exist_ok=True)
 
     env = os.environ.copy()
-    env.update(load_env(Path(args.env_file)))
+    env.update(load_env(Path(env_file)))
     for key in ("MQTT_WORKSHOP_ADAPTER_PASSWORD",):
         if not env.get(key):
-            print(f"缺少环境变量 {key}（在 {args.env_file} 里）", file=sys.stderr)
+            print(f"缺少环境变量 {key}（在 {env_file} 里）", file=sys.stderr)
             return 2
 
     for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, _on_stop)
+        _ = signal.signal(sig, _on_stop)
 
     ensure_stack()
     ensure_pty()
@@ -722,36 +747,37 @@ def main() -> int:
     sim = start_simulator()
     runs: dict[str, Proc] = {}
     adapter: Proc | None = None
-    ticks: list[dict] = []
-    results: list[dict] = []
+    ticks: list[dict[str, object]] = []
+    results: list[dict[str, object]] = []
     started = time.time()
     try:
-        runs = start_agents(args.agent, env, tmp)
-        adapter = start_adapter(args.adapter, env)
+        runs = start_agents(agent_bin, env, tmp)
+        adapter = start_adapter(adapter_bin, env)
         print("链路就绪。")
         flowing = assert_pipeline_flowing()
         if not flowing:
             raise RuntimeError(
-                "链路 20 秒内没有新增数据，检查会读到上一轮的旧值——"
+                "链路 20 秒内没有新增数据，检查会读到上一轮的旧值——" +
                 "先查 seq 是否归零被判重、adapter 是否在收")
 
         started = time.time()
-        if args.phase in ("run", "all"):
-            ticks = run_phase(runs, args.minutes, args.interval, started, evidence)
+        if phase in ("run", "all"):
+            ticks = run_phase(runs, minutes, interval, started, evidence)
             # 边跑边落盘：跑 2 小时中途挂掉也要留得住证据。
-            (evidence / "timeseries.json").write_text(
+            _ = (evidence / "timeseries.json").write_text(
                 json.dumps(ticks, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         else:
             ts = evidence / "timeseries.json"
             if ts.is_file():
-                ticks = json.loads(ts.read_text(encoding="utf-8"))
+                ticks = cast(list[dict[str, object]],
+                             json.loads(ts.read_text(encoding="utf-8")))
 
         results.clear()
         checks: list[tuple[str, Callable[[], tuple[bool, str]]]] = []
         if ticks:
             checks.append(("5 台终端连续运行，采集无中断、队列深度回落",
                            lambda: case_no_abnormal_exit(ticks)))
-        if args.phase in ("check", "all"):
+        if phase in ("check", "all"):
             # 分析段有破坏性用例（停 Broker 5 分钟、造旧数据清理），
             # `--phase run` 绝不能走到这里。
             print("\n分析段：")
@@ -774,8 +800,8 @@ def main() -> int:
         # 而原因在上一轮脚本里——这个坑已经踩过三次。
         start_broker()
         for proc in list(runs.values()) + ([adapter] if adapter else []):
-            proc.stop()
-        sim.stop()
+            _ = proc.stop()
+        _ = sim.stop()
 
     passed = all(r["passed"] for r in results)
     payload = {
@@ -783,15 +809,15 @@ def main() -> int:
         "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         # 时长从采样序列取，不取 --minutes 默认值：--phase check 没真跑，
         # 写 120 会让人以为这一轮跑了两小时。
-        "durationMin": round(ticks[-1]["elapsedMin"], 2) if ticks else 0,
+        "durationMin": round(cast(float, ticks[-1]["elapsedMin"]), 2) if ticks else 0,
         "samples": len(ticks),
         "terminals": TERMINALS,
         "passed": passed,
         "cases": results,
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    write_report(evidence / "试运行报告.md", ticks, results, args.minutes)
+    write_report(evidence / "试运行报告.md", ticks, results, minutes)
 
     for leftover in tmp.glob("*"):
         leftover.unlink()

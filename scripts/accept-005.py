@@ -25,7 +25,10 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections.abc import Mapping
+from http.client import HTTPResponse
 from pathlib import Path
+from typing import TypedDict, cast
 
 SIM = "http://127.0.0.1:8080"
 TERMINAL = "ESN-ZX-0001"
@@ -35,42 +38,64 @@ PERIOD_MS = 5000
 PERIOD_TOLERANCE_MS = 700
 
 
-def api(method: str, path: str, body: dict | None = None) -> dict:
+class LogRec(TypedDict):
+    """Zerolog 单行日志里被本验收读取的字段。
+
+    各 msg 类型只出现其中一部分，但直取键 `rec["quality"]` 的写法保留原语义
+    （缺键就该像原来一样炸出来，而不是被 `.get()` 静默成 None）。
+    """
+
+    msg: str
+    busId: str
+    pointId: str
+    quality: int
+    value: float | int | str | None
+    collectTime: str | int
+
+
+def api(method: str, path: str, body: Mapping[str, object] | None = None) -> dict[str, object]:
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(SIM + path, data=data, method=method)
     req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        return json.loads(resp.read())
+    with cast(HTTPResponse, urllib.request.urlopen(req, timeout=5)) as resp:
+        return cast(dict[str, object], json.loads(resp.read()))
 
 
 def write_points(bus: str, slave: int, points: dict[str, int]) -> None:
     body = {"points": [{"code": code, "value": v} for code, v in points.items()]}
-    api("PUT", f"/api/v1/reg/{TERMINAL}/{bus}/{slave}", body)
+    _ = api("PUT", f"/api/v1/reg/{TERMINAL}/{bus}/{slave}", body)
 
 
 def inject(bus: str, slave: int, mode: str, count: int = 200, code: int | None = None) -> None:
-    body: dict = {"mode": mode, "count": count}
+    body: dict[str, object] = {"mode": mode, "count": count}
     if code is not None:
         body["exceptionCode"] = code
-    api("POST", f"/api/v1/fault/{TERMINAL}/{bus}/{slave}", body)
+    _ = api("POST", f"/api/v1/fault/{TERMINAL}/{bus}/{slave}", body)
 
 
 def clear_faults(bus: str) -> None:
-    api("DELETE", f"/api/v1/fault/{TERMINAL}/{bus}")
+    _ = api("DELETE", f"/api/v1/fault/{TERMINAL}/{bus}")
 
 
-def num(v) -> float | None:
+def num(v: object) -> float | None:
     """日志里的数值可能是 int 也可能是 float（JSON 编码按值本身决定），统一按浮点比。"""
-    return None if v is None else float(v)
+    if v is None:
+        return None
+    if isinstance(v, (int, float, str)):
+        return float(v)
+    raise TypeError(f"数值字段不是标量: {type(v).__name__}")
 
 
-def parse_line(line: str) -> dict:
+def parse_line(line: str) -> LogRec:
     """日志是 Zerolog 的 JSON 单行；非 JSON 行（启动期提示）直接忽略。"""
     try:
-        rec = json.loads(line)
+        loaded = cast(object, json.loads(line))
     except json.JSONDecodeError:
-        return {}
-    return rec if isinstance(rec, dict) else {}
+        loaded = None
+    if not isinstance(loaded, dict):
+        # 经 object 中转：dict[Unknown, Unknown] 与 TypedDict 无静态重叠。
+        return cast(LogRec, cast(object, {}))
+    return cast(LogRec, cast(object, loaded))
 
 
 def run_agent(agent: str, config: str, ports: str, seconds: float, level: str = "debug") -> str:
@@ -93,8 +118,8 @@ def run_agent(agent: str, config: str, ports: str, seconds: float, level: str = 
     return out
 
 
-def readings(log: str, bus: str | None = None) -> list[dict]:
-    rows = []
+def readings(log: str, bus: str | None = None) -> list[LogRec]:
+    rows: list[LogRec] = []
     for line in log.splitlines():
         rec = parse_line(line)
         if rec.get("msg") != "测点读数":
@@ -105,8 +130,8 @@ def readings(log: str, bus: str | None = None) -> list[dict]:
     return rows
 
 
-def batches(log: str, bus: str | None = None) -> list[dict]:
-    rows = []
+def batches(log: str, bus: str | None = None) -> list[LogRec]:
+    rows: list[LogRec] = []
     for line in log.splitlines():
         rec = parse_line(line)
         if rec.get("msg") != "采集周期完成":
@@ -117,18 +142,18 @@ def batches(log: str, bus: str | None = None) -> list[dict]:
     return rows
 
 
-def latest(rows: list[dict], point_id: str) -> dict | None:
+def latest(rows: list[LogRec], point_id: str) -> LogRec | None:
     hit = [r for r in rows if r.get("pointId") == point_id]
     return hit[-1] if hit else None
 
 
-def expect(cond: bool, name: str, detail: str, results: list[dict]) -> None:
+def expect(cond: bool, name: str, detail: str, results: list[dict[str, object]]) -> None:
     results.append({"name": name, "passed": bool(cond), "detail": detail})
     mark = "ok  " if cond else "FAIL"
     print(f"  {mark} {name}：{detail}")
 
 
-def case_values(agent: str, config: str, ports: str, results: list[dict]) -> None:
+def case_values(agent: str, config: str, ports: str, results: list[dict[str, object]]) -> None:
     """14 点工程值与模拟器设定值一致，含 32 位累计量高低字拼装。"""
     expected = {
         "motor_temp": 62.5,      # 625 × 0.1
@@ -160,7 +185,7 @@ def case_values(agent: str, config: str, ports: str, results: list[dict]) -> Non
     bad: list[str] = []
     for bus in ("A", "B"):
         bus_rows = [r for r in rows if r.get("busId") == bus]
-        latest_by_code = {}
+        latest_by_code: dict[str, LogRec] = {}
         for r in bus_rows:
             latest_by_code[r["pointId"].rsplit(".", 1)[1]] = r
         seen[bus] = len(latest_by_code)
@@ -185,7 +210,7 @@ def case_values(agent: str, config: str, ports: str, results: list[dict]) -> Non
            results)
 
 
-def case_period(agent: str, config: str, ports: str, results: list[dict]) -> None:
+def case_period(agent: str, config: str, ports: str, results: list[dict[str, object]]) -> None:
     """采集周期稳定 5 秒；同批测点共享同一 collectTime。"""
     log = run_agent(agent, config, ports, seconds=17)
     rows = batches(log, bus="A")
@@ -198,7 +223,7 @@ def case_period(agent: str, config: str, ports: str, results: list[dict]) -> Non
            results)
 
     # 同批：一个 collectTime 下 14 个测点。
-    per_batch: dict[str, int] = {}
+    per_batch: dict[str | int, int] = {}
     for r in readings(log, bus="A"):
         per_batch[r["collectTime"]] = per_batch.get(r["collectTime"], 0) + 1
     ok = bool(per_batch) and all(n == 14 for n in per_batch.values())
@@ -206,7 +231,7 @@ def case_period(agent: str, config: str, ports: str, results: list[dict]) -> Non
            f"每批测点数 {sorted(per_batch.values())}", results)
 
 
-def case_quality(agent: str, config: str, ports: str, results: list[dict]) -> None:
+def case_quality(agent: str, config: str, ports: str, results: list[dict[str, object]]) -> None:
     """超时 → 2、异常码 → 1、CRC 错 → 3，三者值为空；失败不沿用旧值。"""
     clear_faults("A")
     clear_faults("B")
@@ -231,8 +256,8 @@ def case_quality(agent: str, config: str, ports: str, results: list[dict]) -> No
         "A.3.env_temp": (1, "异常码"),
         "A.5.air_pressure": (3, "CRC 错"),
     }
-    problems = []
-    detail = []
+    problems: list[str] = []
+    detail: list[str] = []
     for point_id, (want_q, label) in checks.items():
         rec = latest(rows, point_id)
         if rec is None:
@@ -254,7 +279,7 @@ def case_quality(agent: str, config: str, ports: str, results: list[dict]) -> No
     clear_faults("A")
 
 
-def case_bus_independence(agent: str, config: str, ports: str, results: list[dict]) -> None:
+def case_bus_independence(agent: str, config: str, ports: str, results: list[dict[str, object]]) -> None:
     """两条总线各一个协程：A 总线五个从站全部超时，B 总线周期不受影响。"""
     for slave in (1, 2, 3, 4, 5):
         inject("A", slave, "timeout", count=1000)
@@ -275,16 +300,16 @@ def case_bus_independence(agent: str, config: str, ports: str, results: list[dic
     a_slower = len(a_stamps) < len(b_stamps)
     expect(b_ok and a_slower, "A 总线阻塞时 B 总线仍按 5 秒周期采集",
            f"{len(b_stamps)} 个 B 周期，间隔 {b_gaps} ms；"
-           f"同一时段 A 只完成 {len(a_stamps)} 个周期（每从站耗尽重试）", results)
+           + f"同一时段 A 只完成 {len(a_stamps)} 个周期（每从站耗尽重试）", results)
 
 
-def case_out_of_range(agent: str, config: str, ports: str, results: list[dict]) -> None:
+def case_out_of_range(agent: str, config: str, ports: str, results: list[dict[str, object]]) -> None:
     """超量程保留数值并标 5，不置空。"""
     clear_faults("A")
     write_points("A", 1, {"motor_temp": 2500, "motor_vib": 6000})  # 250 ℃ / 60 mm/s
     log = run_agent(agent, config, ports, seconds=6)
     rows = readings(log, bus="A")
-    problems = []
+    problems: list[str] = []
     for point_id, want in (("A.1.motor_temp", "250"), ("A.1.motor_vib", "60")):
         rec = latest(rows, point_id)
         if rec is None:
@@ -298,12 +323,13 @@ def case_out_of_range(agent: str, config: str, ports: str, results: list[dict]) 
            "motor_temp=250℃ / motor_vib=60mm/s 均保留原值，质量码 5", results)
 
 
-def case_reject_bad_config(agent: str, config: str, ports: str, results: list[dict], tmp: Path) -> None:
+def case_reject_bad_config(agent: str, config: str, ports: str, results: list[dict[str, object]], tmp: Path) -> None:
     """配置非法时拒绝启动（非 0 退出）并输出具体字段。"""
     broken = tmp / "broken.json"
+    # 造坏配置要沿任意 JSON 形状深改一层，静态上只能放行 Any。
     data = json.loads(Path(config).read_text(encoding="utf-8"))
     data["buses"][0]["devices"][0]["blocks"][0]["points"][0]["scale"] = 0
-    broken.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    _ = broken.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     proc = subprocess.run([agent, "-config", str(broken), "-ports", ports],
                           capture_output=True, text=True, timeout=20)
@@ -316,24 +342,28 @@ def case_reject_bad_config(agent: str, config: str, ports: str, results: list[di
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="005 验收")
-    parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
-    parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
-    parser.add_argument("--ports", default=".pty/agent-ports.json")
-    parser.add_argument("--evidence", default="docs/evidence/005")
+    _ = parser.add_argument("--agent", required=True, help="edge-agent 可执行文件")
+    _ = parser.add_argument("--config", default="config/terminals/ESN-ZX-0001.json")
+    _ = parser.add_argument("--ports", default=".pty/agent-ports.json")
+    _ = parser.add_argument("--evidence", default="docs/evidence/005")
     args = parser.parse_args()
+    # argparse 的 Namespace 属性静态上是 Any，取出来先钉成 str。
+    agent = cast(str, args.agent)
+    config = cast(str, args.config)
+    ports = cast(str, args.ports)
 
-    evidence = Path(args.evidence)
+    evidence = Path(cast(str, args.evidence))
     evidence.mkdir(parents=True, exist_ok=True)
     tmp = evidence / "_tmp"
     tmp.mkdir(exist_ok=True)
 
-    results: list[dict] = []
-    case_values(args.agent, args.config, args.ports, results)
-    case_period(args.agent, args.config, args.ports, results)
-    case_quality(args.agent, args.config, args.ports, results)
-    case_bus_independence(args.agent, args.config, args.ports, results)
-    case_out_of_range(args.agent, args.config, args.ports, results)
-    case_reject_bad_config(args.agent, args.config, args.ports, results, tmp)
+    results: list[dict[str, object]] = []
+    case_values(agent, config, ports, results)
+    case_period(agent, config, ports, results)
+    case_quality(agent, config, ports, results)
+    case_bus_independence(agent, config, ports, results)
+    case_out_of_range(agent, config, ports, results)
+    case_reject_bad_config(agent, config, ports, results, tmp)
 
     passed = all(r["passed"] for r in results)
     payload = {
@@ -343,7 +373,7 @@ def main() -> int:
         "passed": passed,
         "cases": results,
     }
-    (evidence / "acceptance.json").write_text(
+    _ = (evidence / "acceptance.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (tmp / "broken.json").unlink(missing_ok=True)
     tmp.rmdir()

@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import sys
 from pathlib import Path
 
@@ -26,29 +28,30 @@ OCCUR_MS = 1793500200123
 OCCUR_TEXT = "2026-11-01 10:30:00"
 
 
-def _alarm(**overrides) -> card.Alarm:
+def _alarm(**overrides: Any) -> card.Alarm:
     """`flows.json`「组装卡片」节点的真实产出形状：没有 threshold。"""
-    fields = {
-        "alarmId": "AL-0000123",
-        "level": 3,
-        "levelText": "严重",
-        "workshop": "一号车间",
-        "terminalId": "ESN-ZX-0001",
-        "deviceText": "电机状态监测仪 · 总线A · 从站1",
-        "pointText": "电机绕组温度",
-        "alarmType": "HIGH_HIGH_LIMIT",
-        "alarmTypeText": "高高限",
-        "triggerValue": 108.0,
-        "unit": "℃",
-        "occurTime": OCCUR_MS,
-        "reason": "连续 3 次超过高高限 105 ℃",
-        "backfill": False,
-    }
-    fields.update(overrides)
-    return card.Alarm(**fields)
+    base = card.Alarm(
+        alarmId="AL-0000123",
+        level=3,
+        levelText="严重",
+        workshop="一号车间",
+        terminalId="ESN-ZX-0001",
+        deviceText="电机状态监测仪 · 总线A · 从站1",
+        pointText="电机绕组温度",
+        alarmType="HIGH_HIGH_LIMIT",
+        alarmTypeText="高高限",
+        triggerValue=108.0,
+        unit="℃",
+        occurTime=OCCUR_MS,
+        reason="连续 3 次超过高高限 105 ℃",
+        backfill=False,
+    )
+    # 覆盖值都是测试自备的合法字面量；跳过 pydantic 校验，与直接给字段赋值等价。
+    return base.model_copy(update=overrides) if overrides else base
 
 
-def _payload(notify_id: str = "NT-ESN-ZX-0001-A.1.motor_temp-1793500200123", **alarm) -> dict:
+def _payload(notify_id: str = "NT-ESN-ZX-0001-A.1.motor_temp-1793500200123",
+             **alarm: Any) -> dict[str, Any]:
     alarm_body = _alarm(**alarm).model_dump()
     return {
         "notifyId": notify_id,
@@ -99,7 +102,7 @@ class TestCardFields:
         assert card.trigger_text(_alarm(triggerValue=2.35, unit="mm/s")) == "2.35mm/s"
 
     @pytest.mark.parametrize(("level", "text"), [(1, "提示"), (2, "警告"), (3, "严重"), (4, "紧急")])
-    def test_level_text_falls_back_to_table(self, level, text):
+    def test_level_text_falls_back_to_table(self, level: int, text: str):
         assert card.level_label(_alarm(level=level, levelText=None)) == text
 
     def test_upstream_level_text_wins(self):
@@ -139,7 +142,7 @@ class TestStore:
 
     def test_repeat_save_is_deduplicated(self):
         s = store.RecordStore(":memory:")
-        s.save(card.NotifyCard(**_payload()), 1_000)
+        _ = s.save(card.NotifyCard(**_payload()), 1_000)
         _, duplicate = s.save(card.NotifyCard(**_payload()), 1_000)
         assert duplicate is True
         assert s.count() == 1
@@ -154,7 +157,7 @@ class TestStore:
     def test_repeat_save_does_not_overwrite_first_values(self):
         """重试带了不同触发值时，卡片必须还是首次那一份。"""
         s = store.RecordStore(":memory:")
-        s.save(card.NotifyCard(**_payload(triggerValue=108.0)), 1_000)
+        _ = s.save(card.NotifyCard(**_payload(triggerValue=108.0)), 1_000)
         record, _ = s.save(card.NotifyCard(**_payload(triggerValue=120.0)), 2_000)
         assert record.triggerValue == 108.0
         assert record.receiveTime == 1_000
@@ -162,26 +165,26 @@ class TestStore:
     def test_recent_is_reverse_chronological(self):
         s = store.RecordStore(":memory:")
         for i, ts in enumerate([1_000, 2_000, 3_000]):
-            s.save(card.NotifyCard(**_payload(notify_id=f"NT-{i}")), ts)
+            _ = s.save(card.NotifyCard(**_payload(notify_id=f"NT-{i}")), ts)
         assert [r.notifyId for r in s.recent(10)] == ["NT-2", "NT-1", "NT-0"]
 
     def test_recent_breaks_same_timestamp_by_insert_desc(self):
         s = store.RecordStore(":memory:")
-        s.save(card.NotifyCard(**_payload(notify_id="NT-a")), 1_000)
-        s.save(card.NotifyCard(**_payload(notify_id="NT-b")), 1_000)
+        _ = s.save(card.NotifyCard(**_payload(notify_id="NT-a")), 1_000)
+        _ = s.save(card.NotifyCard(**_payload(notify_id="NT-b")), 1_000)
         assert [r.notifyId for r in s.recent(10)] == ["NT-b", "NT-a"]
 
     def test_recent_respects_limit(self):
         s = store.RecordStore(":memory:")
         for i in range(5):
-            s.save(card.NotifyCard(**_payload(notify_id=f"NT-{i}")), 1_000 + i)
+            _ = s.save(card.NotifyCard(**_payload(notify_id=f"NT-{i}")), 1_000 + i)
         assert len(s.recent(2)) == 2
         assert s.count() == 5
 
-    def test_records_survive_reopen(self, tmp_path):
+    def test_records_survive_reopen(self, tmp_path: Path):
         path = tmp_path / "records.db"
         first = store.RecordStore(str(path))
-        first.save(card.NotifyCard(**_payload()), 1_000)
+        _ = first.save(card.NotifyCard(**_payload()), 1_000)
         first.close()
 
         second = store.RecordStore(str(path))
@@ -193,14 +196,14 @@ class TestStore:
 
     def test_clear_empties_records(self):
         s = store.RecordStore(":memory:")
-        s.save(card.NotifyCard(**_payload()), 1_000)
+        _ = s.save(card.NotifyCard(**_payload()), 1_000)
         s.clear()
         assert s.count() == 0
         assert s.recent(10) == []
 
     def test_backfill_flag_round_trips(self):
         s = store.RecordStore(":memory:")
-        s.save(card.NotifyCard(**_payload(backfill=True)), 1_000)
+        _ = s.save(card.NotifyCard(**_payload(backfill=True)), 1_000)
         assert s.recent(1)[0].backfill is True
 
 
@@ -211,34 +214,34 @@ class TestNotifyCardValidation:
         assert card.NotifyCard(**_payload()).notifyId.startswith("NT-")
 
     @pytest.mark.parametrize("field", ["notifyId", "msgtype", "alarm", "markdown"])
-    def test_missing_top_level_field_rejected(self, field):
+    def test_missing_top_level_field_rejected(self, field: str):
         payload = _payload()
         payload.pop(field)
         with pytest.raises(Exception):
-            card.NotifyCard(**payload)
+            _ = card.NotifyCard(**payload)
 
     @pytest.mark.parametrize("field", ["level", "workshop", "terminalId", "pointText",
                                        "alarmType", "triggerValue", "occurTime"])
-    def test_missing_alarm_field_rejected(self, field):
+    def test_missing_alarm_field_rejected(self, field: str):
         alarm = _alarm().model_dump()
         alarm.pop(field)
         payload = _payload()
         payload["alarm"] = alarm
         with pytest.raises(Exception):
-            card.NotifyCard(**payload)
+            _ = card.NotifyCard(**payload)
 
     @pytest.mark.parametrize("value", [0, 5])
-    def test_level_outside_one_to_four_rejected(self, value):
+    def test_level_outside_one_to_four_rejected(self, value: int):
         payload = _payload()
         payload["alarm"]["level"] = value
         with pytest.raises(Exception):
-            card.NotifyCard(**payload)
+            _ = card.NotifyCard(**payload)
 
     def test_unknown_msgtype_rejected(self):
         payload = _payload()
         payload["msgtype"] = "text"
         with pytest.raises(Exception):
-            card.NotifyCard(**payload)
+            _ = card.NotifyCard(**payload)
 
     def test_threshold_and_alarm_id_may_be_absent(self):
         """上游不产出 threshold、告警回查不到时 alarmId 为 null，都不能当必填。"""

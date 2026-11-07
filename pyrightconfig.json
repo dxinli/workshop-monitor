@@ -2,5 +2,19 @@
   "venvPath": ".",
   "venv": ".venv-sim",
   "pythonVersion": "3.12",
-  "exclude": ["**/__pycache__", ".venv-sim"]
+  "typeCheckingMode": "recommended",
+  "exclude": ["**/__pycache__", ".venv-sim"],
+  "executionEnvironments": [
+    { "root": "sim/modbus-slave-sim" },
+    { "root": "sim/wecom-mock" },
+    { "root": "scripts" }
+  ],
+  "reportAny": "none",
+  "reportExplicitAny": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportMissingSuperCall": "none"
 }

@@ -33,7 +33,7 @@ class TestCrc:
         assert rtu.with_crc(REFERENCE_REQUEST[:-2]) == REFERENCE_REQUEST
 
     @pytest.mark.parametrize("frame", [REFERENCE_REQUEST, REFERENCE_RESPONSE])
-    def test_crc_ok_accepts_valid_frames(self, frame):
+    def test_crc_ok_accepts_valid_frames(self, frame: bytes):
         assert rtu.crc_ok(frame)
 
     def test_crc_ok_rejects_corrupted_frame(self):
@@ -58,7 +58,7 @@ class TestFrames:
         ("function_code", "expected"),
         [(3, 0x83), (4, 0x84)],
     )
-    def test_exception_sets_high_bit(self, function_code, expected):
+    def test_exception_sets_high_bit(self, function_code: int, expected: int):
         frame = rtu.build_exception_response(1, function_code, 2)
         assert frame[1] == expected
         assert frame[2] == 2
@@ -79,7 +79,7 @@ class TestFaultPlan:
         assert plan.take() is None
 
     @pytest.mark.parametrize("mode", ["exception", "crc"])
-    def test_count_expires(self, mode):
+    def test_count_expires(self, mode: str):
         plan = faults.parse_plan(mode, 1, 4)
         assert plan.take() is not None
         assert plan.take() is None
@@ -92,17 +92,17 @@ class TestFaultPlan:
 
     def test_parse_plan_rejects_unknown_mode(self):
         with pytest.raises(ValueError, match="未知故障模式"):
-            faults.parse_plan("nack", 1, None)
+            _ = faults.parse_plan("nack", 1, None)
 
     @pytest.mark.parametrize("count", [0, -1, faults.MAX_FAULT_COUNT + 1])
-    def test_parse_plan_rejects_bad_count(self, count):
+    def test_parse_plan_rejects_bad_count(self, count: int):
         with pytest.raises(ValueError, match="count"):
-            faults.parse_plan("timeout", count, None)
+            _ = faults.parse_plan("timeout", count, None)
 
     @pytest.mark.parametrize("code", [0, 5, 255])
-    def test_parse_plan_rejects_bad_exception_code(self, code):
+    def test_parse_plan_rejects_bad_exception_code(self, code: int):
         with pytest.raises(ValueError, match="异常码"):
-            faults.parse_plan("exception", 1, code)
+            _ = faults.parse_plan("exception", 1, code)
 
 
 class TestBusState:
@@ -142,6 +142,6 @@ class TestBusState:
     def test_snapshot_lists_remaining_count(self):
         state = faults.BusState((1,))
         state.inject(1, faults.parse_plan("exception", 3, 2))
-        state.next_action(1)
+        _ = state.next_action(1)
         snapshot = state.snapshot()
         assert snapshot["faults"]["1"] == {"mode": "exception", "remaining": 2, "exceptionCode": 2}

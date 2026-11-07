@@ -15,6 +15,9 @@
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import argparse
 import importlib.util
 import json
@@ -67,7 +70,7 @@ def dbnow() -> str:
     return psql("SELECT now()::text")
 
 
-def rows_json(sql: str) -> list[dict]:
+def rows_json(sql: str) -> list[dict[str, Any]]:
     out = psql(f"SELECT coalesce(json_agg(t), '[]') FROM ({sql}) t")
     return json.loads(out)
 
@@ -90,7 +93,7 @@ def sim_write_raw(terminal: str, point_path: str, raw: int) -> None:
         raise RuntimeError(f"写寄存器 {terminal}/{point_path}={raw} 失败：{exc}") from exc
 
 
-def sim_post(path: str, body: dict | None = None) -> dict:
+def sim_post(path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     data = json.dumps(body).encode() if body is not None else b""
     req = urllib.request.Request(f"{SIM}{path}", data=data, method="POST",
                                  headers={"Content-Type": "application/json"})
@@ -98,7 +101,7 @@ def sim_post(path: str, body: dict | None = None) -> dict:
         return json.loads(r.read().decode())
 
 
-def sim_delete(path: str) -> dict:
+def sim_delete(path: str) -> dict[str, Any]:
     req = urllib.request.Request(f"{SIM}{path}", method="DELETE")
     with urllib.request.urlopen(req, timeout=5) as r:
         return json.loads(r.read().decode())
@@ -122,7 +125,7 @@ def apply_seed() -> None:
         raise RuntimeError(f"应用种子失败：{out.stderr.strip()[:300]}")
 
 
-def load_point_meta() -> dict:
+def load_point_meta() -> dict[str, Any]:
     """按测点路径（bus.slaveAddr.pointCode）建索引。
 
     同名测点在两条总线上都存在（motor_temp 有 A.1 与 B.1 两处），
@@ -145,15 +148,15 @@ def load_point_meta() -> dict:
 POINT_META = load_point_meta()
 
 
-def alarm_rows(dedupe_key: str, since: str) -> list[dict]:
+def alarm_rows(dedupe_key: str, since: str) -> list[dict[str, Any]]:
     return rows_json(
         f"SELECT alarm_id, dedupe_key, status, level, trigger_value, threshold_value, "
-        f"       occur_time::text, recover_time::text, trigger_count "
-        f"FROM monitor.alarm WHERE dedupe_key = '{dedupe_key}' AND occur_time >= '{since}' "
-        f"ORDER BY occur_time")
+        + f"       occur_time::text, recover_time::text, trigger_count "
+        + f"FROM monitor.alarm WHERE dedupe_key = '{dedupe_key}' AND occur_time >= '{since}' "
+        + f"ORDER BY occur_time")
 
 
-def wait_alarm(dedupe_key: str, since: str, timeout: float = 40.0) -> list[dict]:
+def wait_alarm(dedupe_key: str, since: str, timeout: float = 40.0) -> list[dict[str, Any]]:
     deadline = time.time() + timeout
     while time.time() < deadline:
         got = alarm_rows(dedupe_key, since)
@@ -167,13 +170,13 @@ def measurement_hits(eng_value: float, since: str, until: str | None = None) -> 
     upper = f"AND collect_time <= '{until}'" if until else ""
     return int(psql(
         f"SELECT count(*) FROM monitor.measurement "
-        f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
-        f"  AND value = {eng_value} AND collect_time >= '{since}' {upper}") or 0)
+        + f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
+        + f"  AND value = {eng_value} AND collect_time >= '{since}' {upper}") or 0)
 
 
 def save(name: str, data: object) -> None:
     EV.mkdir(parents=True, exist_ok=True)
-    (EV / name).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _ = (EV / name).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 # ── 用例：告警判定段（AC-04~08，走主通道） ─────────────────────
@@ -188,7 +191,7 @@ def settle_normal() -> None:
     ON CONFLICT 原地更新，occur_time 还是旧值，按时间窗查新行的断言
     全部假阴性（判据要看新数据）。
     """
-    sim_post("/api/v1/scene/normal")
+    _ = sim_post("/api/v1/scene/normal")
     deadline = time.time() + 60
     while time.time() < deadline:
         active = int(psql("SELECT count(*) FROM monitor.alarm WHERE status = 'ACTIVE'") or 0)
@@ -198,7 +201,7 @@ def settle_normal() -> None:
     raise RuntimeError("工况复位 60 秒后仍有活动告警，用例起跑状态不干净")
 
 
-def case_ac04() -> dict:
+def case_ac04() -> dict[str, Any]:
     """AC-04 模拟量连续 N 次越限才告警，单次波动不告警。"""
     over, normal = raw_of(POINT,90), raw_of(POINT,60)   # 90>85 高限
     t0 = dbnow()
@@ -224,15 +227,15 @@ def case_ac04() -> dict:
             "expect": "单次波动不拉响；连续 N=3 次越限才拉响，occur_time 落在第 3 次读数"}
 
 
-def latest_alarm(dedupe_key: str) -> dict | None:
+def latest_alarm(dedupe_key: str) -> dict[str, Any] | None:
     rows = rows_json(
         f"SELECT alarm_id, status, occur_time::text, recover_time::text, trigger_count "
-        f"FROM monitor.alarm WHERE dedupe_key = '{dedupe_key}' "
-        f"ORDER BY occur_time DESC, alarm_id DESC LIMIT 1")
+        + f"FROM monitor.alarm WHERE dedupe_key = '{dedupe_key}' "
+        + f"ORDER BY occur_time DESC, alarm_id DESC LIMIT 1")
     return rows[0] if rows else None
 
 
-def case_ac05() -> dict:
+def case_ac05() -> dict[str, Any]:
     """AC-05 恢复需连续 N 次不满足，中途波动不恢复。"""
     over, normal = raw_of(POINT,90), raw_of(POINT,60)
     start = latest_alarm(TEST_KEY)
@@ -267,7 +270,7 @@ def case_ac05() -> dict:
             "expect": "N-1 轮波动期间保持 ACTIVE；连续 3 次不满足才 RECOVERED"}
 
 
-def case_ac06() -> dict:
+def case_ac06() -> dict[str, Any]:
     """AC-06 开关量当次即告警、当次即恢复，不去抖。"""
     t0 = dbnow()
     sim_write_raw(ESN, DOOR_POINT, 1)
@@ -288,7 +291,7 @@ def case_ac06() -> dict:
             "expect": "置 1 当次拉响、置 0 当次恢复，不累计次数"}
 
 
-def case_ac07() -> dict:
+def case_ac07() -> dict[str, Any]:
     """AC-07 高高限触发时闭合同测点的高限活动告警。"""
     over_h, over_hh, normal = (raw_of(POINT,90), raw_of(POINT,108),
                                raw_of(POINT,60))
@@ -311,7 +314,7 @@ def case_ac07() -> dict:
             "expect": "HIGH_HIGH_LIMIT 拉响时同测点 HIGH_LIMIT 被闭合（status 不再 ACTIVE）"}
 
 
-def case_ac08() -> dict:
+def case_ac08() -> dict[str, Any]:
     """AC-08 质量非 GOOD 不参与告警求值，在判定入口即返回。"""
     m = POINT_META[POINT]
     normal = raw_of(POINT,60)
@@ -322,21 +325,21 @@ def case_ac08() -> dict:
     range_alarms = (alarm_rows(TEST_KEY, t0) + alarm_rows(TEST_KEY_HH, t0))
     bad_rows = rows_json(
         f"SELECT collect_time::text, value, quality FROM monitor.measurement "
-        f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
-        f"  AND collect_time >= '{t0}' AND quality <> 0 ORDER BY collect_time")
+        + f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
+        + f"  AND collect_time >= '{t0}' AND quality <> 0 ORDER BY collect_time")
     sim_write_raw(ESN, POINT, normal)
     time.sleep(8)
     # 二次：协议层超时 → quality=2、value 为空
     t1 = dbnow()
-    sim_post(f"/api/v1/fault/{ESN}/{m['bus']}/{m['slave']}",
+    _ = sim_post(f"/api/v1/fault/{ESN}/{m['bus']}/{m['slave']}",
              {"mode": "timeout", "count": 10})
     time.sleep(20)
     fault_alarms = (alarm_rows(TEST_KEY, t1) + alarm_rows(TEST_KEY_HH, t1))
     timeout_rows = rows_json(
         f"SELECT collect_time::text, quality FROM monitor.measurement "
-        f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
-        f"  AND collect_time >= '{t1}' AND quality = 2 ORDER BY collect_time")
-    sim_delete(f"/api/v1/fault/{ESN}/{m['bus']}")
+        + f"WHERE terminal_id = '{ESN}' AND point_id = '{POINT}' "
+        + f"  AND collect_time >= '{t1}' AND quality = 2 ORDER BY collect_time")
+    _ = sim_delete(f"/api/v1/fault/{ESN}/{m['bus']}")
     ok = (not range_alarms) and len(bad_rows) >= 3 and (not fault_alarms) and len(timeout_rows) >= 1
     return {"case": "AC-08", "passed": ok, "point": POINT,
             "outOfRange": {"value": 300, "quality": 5, "readings": len(bad_rows),
@@ -345,7 +348,7 @@ def case_ac08() -> dict:
             "expect": "质量非 0 的读数（含越限值 300）不产生告警、不推进去抖计数"}
 
 
-def case_ac19() -> dict:
+def case_ac19() -> dict[str, Any]:
     """AC-19 改阈值数值不改代码，60 秒热加载生效。"""
     cfg = ROOT / "config" / "thresholds.json"
     original = cfg.read_text(encoding="utf-8")
@@ -358,8 +361,8 @@ def case_ac19() -> dict:
     # 只改配置文件里的阈值数值，不碰代码
     changed = original.replace('"thresholdValue": 4.5', '"thresholdValue": 50')
     assert changed != original, "阈值 4.5 未找到，检查 config/thresholds.json"
-    cfg.write_text(changed, encoding="utf-8")
-    subprocess.run(["bin/config-tool", "seed"], cwd=ROOT, check=True,
+    _ = cfg.write_text(changed, encoding="utf-8")
+    _ = subprocess.run(["bin/config-tool", "seed"], cwd=ROOT, check=True,
                    capture_output=True)
     apply_seed()
     time.sleep(65)                                # 阈值 60 秒热加载
@@ -368,8 +371,8 @@ def case_ac19() -> dict:
     time.sleep(22)
     after = alarm_rows(f"{ESN}|{VIB_POINT}|HIGH_LIMIT", t1)
     sim_write_raw(ESN, VIB_POINT, normal)
-    cfg.write_text(original, encoding="utf-8")    # 还原配置
-    subprocess.run(["bin/config-tool", "seed"], cwd=ROOT, check=True, capture_output=True)
+    _ = cfg.write_text(original, encoding="utf-8")    # 还原配置
+    _ = subprocess.run(["bin/config-tool", "seed"], cwd=ROOT, check=True, capture_output=True)
     apply_seed()
     diff = subprocess.run(["git", "status", "--short", "--", "config/", "deploy/"],
                           cwd=ROOT, capture_output=True, text=True).stdout.strip()
@@ -384,16 +387,16 @@ def case_ac19() -> dict:
 # ── 指标：时延与触达率 ────────────────────────────────────────
 
 
-def sample_latency() -> dict:
+def sample_latency() -> dict[str, Any]:
     """MV-01/02：从 raw_message 原文报文头取时延，采样 100 条取 P95。"""
     rows = rows_json(
         "SELECT (payload->'header'->>'sendTime')::bigint AS send_ms, "
-        "       (payload->'header'->>'collectTime')::bigint AS collect_ms, "
-        "       (extract(epoch FROM receive_time) * 1000)::bigint AS recv_ms "
-        "FROM monitor.raw_message "
-        "WHERE parse_status = 'OK' AND payload->'header'->>'msgType' = 'DATA' "
-        "  AND (payload->'header'->>'backfill')::text = 'false' "
-        "ORDER BY receive_time DESC LIMIT 100")
+        + "       (payload->'header'->>'collectTime')::bigint AS collect_ms, "
+        + "       (extract(epoch FROM receive_time) * 1000)::bigint AS recv_ms "
+        + "FROM monitor.raw_message "
+        + "WHERE parse_status = 'OK' AND payload->'header'->>'msgType' = 'DATA' "
+        + "  AND (payload->'header'->>'backfill')::text = 'false' "
+        + "ORDER BY receive_time DESC LIMIT 100")
     if len(rows) < 100:
         raise RuntimeError(f"时延样本不足 100 条，实际 {len(rows)}")
     mv01 = sorted(r["send_ms"] - r["collect_ms"] for r in rows)
@@ -409,10 +412,10 @@ def sample_latency() -> dict:
                              "mv02": mv02[:5] + ["…"] + mv02[-5:]}}
 
 
-def grafana_realtime() -> dict:
+def grafana_realtime() -> dict[str, Any]:
     body = {"queries": [{"refId": "A", "format": "table",
                          "rawSql": "SELECT value, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
-                                   f"FROM v_realtime WHERE terminal_id = '{ESN}' AND point_id = '{POINT}'",
+                                   + f"FROM v_realtime WHERE terminal_id = '{ESN}' AND point_id = '{POINT}'",
                          "datasource": {"uid": "workshop-pg", "type": "grafana-postgresql-datasource"},
                          "intervalMs": 60000, "maxDataPoints": 10}],
             "from": str(int(time.time() * 1000) - 3600_000), "to": str(int(time.time() * 1000))}
@@ -426,7 +429,7 @@ def grafana_realtime() -> dict:
     return {"value": vals[0][0], "ct_ms": vals[1][0]}
 
 
-def case_mv04() -> dict:
+def case_mv04() -> dict[str, Any]:
     """MV-04 端到端：哨兵写入 → 轮询 Grafana 面板查询，观测值首次可见时刻。"""
     samples = []
     for eng in (71.3, 72.7, 74.1):
@@ -454,7 +457,7 @@ def case_mv04() -> dict:
             "method": "写哨兵值 → 0.5s 粒度轮询 Grafana /api/ds/query（面板同款 SQL）→ 首次可见时刻 - collectTime"}
 
 
-def case_mv08(since: str) -> dict:
+def case_mv08(since: str) -> dict[str, Any]:
     """MV-08 通知触达率：level≥2 且非补传的告警应全部留痕 notify_log。
 
     对账键按 docs/09 的口径用 notify_id——它由告警行确定性推导
@@ -463,13 +466,13 @@ def case_mv08(since: str) -> dict:
     """
     alarms = rows_json(
         f"SELECT a.alarm_id, a.level, a.dedupe_key, a.occur_time::text, "
-        f"       EXISTS(SELECT 1 FROM monitor.notify_log n WHERE "
-        f"              n.notify_id = 'NT-' || a.terminal_id || '-' || a.point_id || '-' || "
-        f"              floor(extract(epoch FROM a.occur_time) * 1000)::bigint "
-        f"              OR n.alarm_id = a.alarm_id) AS logged "
-        f"FROM monitor.alarm a "
-        f"WHERE a.level >= 2 AND a.backfill = FALSE AND a.occur_time >= '{since}' "
-        f"ORDER BY a.alarm_id")
+        + f"       EXISTS(SELECT 1 FROM monitor.notify_log n WHERE "
+        + f"              n.notify_id = 'NT-' || a.terminal_id || '-' || a.point_id || '-' || "
+        + f"              floor(extract(epoch FROM a.occur_time) * 1000)::bigint "
+        + f"              OR n.alarm_id = a.alarm_id) AS logged "
+        + f"FROM monitor.alarm a "
+        + f"WHERE a.level >= 2 AND a.backfill = FALSE AND a.occur_time >= '{since}' "
+        + f"ORDER BY a.alarm_id")
     if not alarms:
         return {"case": "MV-08", "passed": None, "note": "窗口内无 level≥2 告警，不适用"}
     hit = [a for a in alarms if a["logged"]]
@@ -483,7 +486,7 @@ def case_mv08(since: str) -> dict:
 # ── 用例：注入通道（AC-14/17，停 agent 后经 Broker→平台） ─────
 
 
-def data_msg(seq: int, collect_ms: int, value: float) -> dict:
+def data_msg(seq: int, collect_ms: int, value: float) -> dict[str, Any]:
     return {"header": {"schemaVersion": "2.0", "msgType": "DATA",
                        "msgId": f"{ESN}-{seq:08d}", "esn": ESN, "seq": seq,
                        "collectTime": collect_ms, "sendTime": collect_ms + 500,
@@ -494,7 +497,7 @@ def data_msg(seq: int, collect_ms: int, value: float) -> dict:
                      "yx": [], "stat": {"total": 1, "good": 1, "bad": 0}}}
 
 
-def publish(env: dict, payload: dict) -> None:
+def publish(env: dict[str, Any], payload: dict[str, Any]) -> None:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     out = docker("exec", base.BROKER, "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883",
                  "-u", ESN, "-P", env.get(f"MQTT_{ESN.replace('-', '_')}_PASSWORD", ""),
@@ -503,10 +506,10 @@ def publish(env: dict, payload: dict) -> None:
         raise RuntimeError(f"发布失败：{out.stderr.strip()[:200]}")
 
 
-def realtime_row() -> dict:
+def realtime_row() -> dict[str, Any]:
     got = rows_json(
         f"SELECT value, quality, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
-        f"FROM monitor.realtime_value WHERE terminal_id = '{ESN}' AND point_id = '{POINT}'")
+        + f"FROM monitor.realtime_value WHERE terminal_id = '{ESN}' AND point_id = '{POINT}'")
     return got[0] if got else {}
 
 
@@ -517,11 +520,11 @@ def fresh_seq(base: int = 1000) -> int:
     整个用例的「首投写入」断言就假阴性了。
     """
     high = int(psql(f"SELECT coalesce(max(seq), 0) FROM monitor.raw_message "
-                    f"WHERE terminal_id = '{ESN}'") or 0)
+                    + f"WHERE terminal_id = '{ESN}'") or 0)
     return high + base
 
 
-def case_ac14(env: dict) -> dict:
+def case_ac14(env: dict[str, Any]) -> dict[str, Any]:
     """AC-14 实时值只进不退：较旧 collectTime 的读数不覆盖较新的。"""
     now = int(time.time() * 1000)
     s0 = fresh_seq()
@@ -534,7 +537,7 @@ def case_ac14(env: dict) -> dict:
     after_old = realtime_row()
     hist = rows_json(
         f"SELECT seq, value, (extract(epoch FROM collect_time)*1000)::bigint AS ct_ms "
-        f"FROM monitor.measurement WHERE seq IN ({s0}, {s0 + 1}) ORDER BY seq")
+        + f"FROM monitor.measurement WHERE seq IN ({s0}, {s0 + 1}) ORDER BY seq")
     not_regressed = (after_old.get("ct_ms") or 0) >= now and after_old.get("value") != 55.5
     ok = len(hist) == 2 and after_new.get("value") == 62.5 and not_regressed
     return {"case": "AC-14", "passed": ok, "point": POINT,
@@ -544,22 +547,22 @@ def case_ac14(env: dict) -> dict:
             "expect": "历史两行都保留；实时值停在较新读数（62.5@较新 collectTime）"}
 
 
-def case_ac17(env: dict, log_tail) -> dict:
+def case_ac17(env: dict[str, Any], log_tail: Callable[[], str]) -> dict[str, Any]:
     """AC-17 落库幂等：同一 msgId 投递两次只写一次业务表。"""
     seq = fresh_seq(2000)
     msg = data_msg(seq, int(time.time() * 1000), 61.5)
     publish(env, msg)
     time.sleep(2)
     first = {"messageLog": psql(f"SELECT count(*) FROM monitor.message_log "
-                               f"WHERE terminal_id = '{ESN}' AND seq = {seq}"),
+                               + f"WHERE terminal_id = '{ESN}' AND seq = {seq}"),
              "measurement": psql(f"SELECT count(*) FROM monitor.measurement WHERE seq = {seq}")}
     publish(env, msg)                           # 原样重投
     time.sleep(2)
     second = {"messageLog": psql(f"SELECT count(*) FROM monitor.message_log "
-                                f"WHERE terminal_id = '{ESN}' AND seq = {seq}"),
+                                + f"WHERE terminal_id = '{ESN}' AND seq = {seq}"),
               "measurement": psql(f"SELECT count(*) FROM monitor.measurement WHERE seq = {seq}"),
               "rawMessage": psql(f"SELECT count(*) FROM monitor.raw_message "
-                                 f"WHERE terminal_id = '{ESN}' AND seq = {seq}")}
+                                 + f"WHERE terminal_id = '{ESN}' AND seq = {seq}")}
     dup_seen = "DUPLICATE" in log_tail()        # 重投之后再截日志
     ok = (first["measurement"] == second["measurement"] == "1"
           and first["messageLog"] == second["messageLog"] == "1" and dup_seen)
@@ -572,20 +575,20 @@ def case_ac17(env: dict, log_tail) -> dict:
 # ── check 段：AC-15/20 与 MV 归集 ────────────────────────────
 
 
-def case_ac15() -> dict:
+def case_ac15() -> dict[str, Any]:
     """AC-15 按终端隔离发布权限：broker ACL 脚本 + 库角色矩阵。"""
-    subprocess.run(["bash", "scripts/gen-passwd.sh", str(base_env)], cwd=ROOT,
+    _ = subprocess.run(["bash", "scripts/gen-passwd.sh", str(base_env)], cwd=ROOT,
                    check=True, capture_output=True)
     run = subprocess.run(["bash", "scripts/verify-broker.sh", str(base_env)], cwd=ROOT,
                          capture_output=True, text=True)
-    (EV / "AC-15.txt").write_text(
+    _ = (EV / "AC-15.txt").write_text(
         "$ scripts/verify-broker.sh\n" + run.stdout + run.stderr, encoding="utf-8")
     roles = rows_json(
         "SELECT has_table_privilege('workshop_readonly','monitor.measurement','INSERT') AS ro_ins, "
-        "       has_table_privilege('workshop_readonly','monitor.measurement','SELECT') AS ro_sel, "
-        "       has_table_privilege('workshop_dashboard','monitor.alarm','UPDATE') AS dash_upd, "
-        "       has_table_privilege('workshop_notify','monitor.alarm','UPDATE') AS notify_upd, "
-        "       has_table_privilege('workshop_adapter','monitor.alarm_ack','INSERT') AS adapter_ack")
+        + "       has_table_privilege('workshop_readonly','monitor.measurement','SELECT') AS ro_sel, "
+        + "       has_table_privilege('workshop_dashboard','monitor.alarm','UPDATE') AS dash_upd, "
+        + "       has_table_privilege('workshop_notify','monitor.alarm','UPDATE') AS notify_upd, "
+        + "       has_table_privilege('workshop_adapter','monitor.alarm_ack','INSERT') AS adapter_ack")
     matrix_ok = (roles and not roles[0]["ro_ins"] and roles[0]["ro_sel"]
                  and roles[0]["dash_upd"] and not roles[0]["notify_upd"]
                  and not roles[0]["adapter_ack"])
@@ -595,13 +598,13 @@ def case_ac15() -> dict:
             "expect": "越权发布被拒；workshop_readonly 只读、notify 不改告警、adapter 不写确认"}
 
 
-def case_ac20() -> dict:
+def case_ac20() -> dict[str, Any]:
     """AC-20 换协议不影响其他组件：import 边界机器检查 + seam 清单。"""
     lint = subprocess.run(["make", "lint"], cwd=ROOT, capture_output=True, text=True)
     depguard = subprocess.run(
         ["grep", "-A", "12", "depguard:", str(ROOT / ".golangci.yml")],
         capture_output=True, text=True).stdout
-    (EV / "AC-20.txt").write_text(
+    _ = (EV / "AC-20.txt").write_text(
         "$ make lint\n" + lint.stdout + lint.stderr + "\n--- depguard 规则 ---\n" + depguard,
         encoding="utf-8")
     seams = ["agent/codec.go toEngineering（换算）", "adapter/evaluate 求值入口（去抖与状态机）",
@@ -612,19 +615,19 @@ def case_ac20() -> dict:
             "expect": "换协议只动 internal/agent 的 codec；冻结线 A/B/C 互不牵连"}
 
 
-def collect_mvs() -> dict:
+def collect_mvs() -> dict[str, Any]:
     """MV-03/05/06/07/09/10：归集既有证据 + 现场可测项。"""
     refresh = subprocess.run(
         ["grep", "-rho", '"refresh": "5s"', str(ROOT / "deploy/grafana/dashboards")],
         capture_output=True, text=True).stdout.count("5s")
     jobs = rows_json(
         "SELECT job_id, proc_name, config->>'drop_after' AS drop_after "
-        "FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention'")
+        + "FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention'")
     dbsize = psql("SELECT pg_size_pretty(pg_database_size(current_database()))")
     df = subprocess.run(["docker", "system", "df"], capture_output=True, text=True).stdout
     stats = subprocess.run(["docker", "stats", "--no-stream", "--format",
                             "{{.Name}} {{.MemUsage}}"], capture_output=True, text=True).stdout
-    (EV / "MV-10.txt").write_text(df + "\n--- 内存 ---\n" + stats, encoding="utf-8")
+    _ = (EV / "MV-10.txt").write_text(df + "\n--- 内存 ---\n" + stats, encoding="utf-8")
     return {"MV-03": {"passed": refresh >= 8, "panelsRefresh5s": refresh,
                       "evidence": "deploy/grafana/dashboards/*.json 的 refresh 字段"},
             "MV-05": {"passed": True, "evidence": "docs/evidence/015/acceptance.json（healthz 四项）"},
@@ -639,7 +642,7 @@ def collect_mvs() -> dict:
 # ── 主流程 ────────────────────────────────────────────────────
 
 
-def run_phase(agent: str, adapter: str, env: dict) -> dict:
+def run_phase(agent: str, adapter: str, env: dict[str, Any]) -> dict[str, Any]:
     tmp = EV / "_tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     ensure_stack()
@@ -648,9 +651,9 @@ def run_phase(agent: str, adapter: str, env: dict) -> dict:
     sim = start_simulator()
     runs = {}
     adp = None
-    results: dict[str, dict] = {}
+    results: dict[str, dict[str, Any]] = {}
 
-    def keep(name: str, value: dict) -> dict:
+    def keep(name: str, value: dict[str, Any]) -> dict[str, Any]:
         """边跑边落盘：中途断电也留得住已跑用例的证据。"""
         results[name] = value
         save("run-results.json", results)
@@ -666,28 +669,28 @@ def run_phase(agent: str, adapter: str, env: dict) -> dict:
         settle_normal()
 
         print("AC-04 去抖…")
-        keep("AC-04", case_ac04())
+        _ = keep("AC-04", case_ac04())
         print("AC-05 恢复去抖…")
-        keep("AC-05", case_ac05())
+        _ = keep("AC-05", case_ac05())
         print("AC-06 开关量…")
-        keep("AC-06", case_ac06())
+        _ = keep("AC-06", case_ac06())
         print("AC-07 高高限闭合…")
-        keep("AC-07", case_ac07())
+        _ = keep("AC-07", case_ac07())
         print("AC-08 质量门槛…")
-        keep("AC-08", case_ac08())
+        _ = keep("AC-08", case_ac08())
         print("MV-01/02/04 时延…")
-        keep("MV-01/02", sample_latency())
-        keep("MV-04", case_mv04())
-        keep("MV-08", case_mv08(window_start))
+        _ = keep("MV-01/02", sample_latency())
+        _ = keep("MV-04", case_mv04())
+        _ = keep("MV-08", case_mv08(window_start))
         print("AC-19 阈值热加载…")
-        keep("AC-19", case_ac19())
+        _ = keep("AC-19", case_ac19())
 
         print("停 agent，注入 AC-14/17…")
         for t in TERMINALS:
             runs[t].stop(grace=10)
         time.sleep(3)
-        keep("AC-14", case_ac14(env))
-        keep("AC-17", case_ac17(env, lambda: adp.tail(800) if adp else ""))
+        _ = keep("AC-14", case_ac14(env))
+        _ = keep("AC-17", case_ac17(env, lambda: adp.tail(800) if adp else ""))
     finally:
         for t in TERMINALS:
             if t in runs:
@@ -699,7 +702,7 @@ def run_phase(agent: str, adapter: str, env: dict) -> dict:
     return results
 
 
-def check_phase() -> dict:
+def check_phase() -> dict[str, Any]:
     EV.mkdir(parents=True, exist_ok=True)
     results = {}
     print("AC-15 权限隔离…")
@@ -715,10 +718,10 @@ def check_phase() -> dict:
 def main() -> int:
     global base_env
     ap = argparse.ArgumentParser(description="017 验收执行与证据归档")
-    ap.add_argument("--agent", help="edge-agent 可执行文件")
-    ap.add_argument("--adapter", help="proto-adapter 可执行文件")
-    ap.add_argument("--phase", choices=("run", "check", "all"), default="all")
-    ap.add_argument("--env-file", default=str(ROOT / ".env"))
+    _ = ap.add_argument("--agent", help="edge-agent 可执行文件")
+    _ = ap.add_argument("--adapter", help="proto-adapter 可执行文件")
+    _ = ap.add_argument("--phase", choices=("run", "check", "all"), default="all")
+    _ = ap.add_argument("--env-file", default=str(ROOT / ".env"))
     args = ap.parse_args()
 
     base_env = Path(args.env_file)
@@ -728,15 +731,15 @@ def main() -> int:
             print(f"缺少环境变量 {key}", file=sys.stderr)
             return 2
     for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, base._on_stop)
+        _ = signal.signal(sig, base._on_stop)
 
     if args.phase in ("run", "all"):
         if not (args.agent and args.adapter):
             print("run 阶段需要 --agent 与 --adapter", file=sys.stderr)
             return 2
-        run_phase(args.agent, args.adapter, env)
+        _ = run_phase(args.agent, args.adapter, env)
     if args.phase in ("check", "all"):
-        check_phase()
+        _ = check_phase()
     print(f"证据已写入 {EV}")
     return 0
 

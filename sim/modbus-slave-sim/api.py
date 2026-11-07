@@ -69,7 +69,7 @@ def build_app(
         return bus
 
     @app.get("/api/v1/health")
-    def health() -> dict:
+    def health() -> dict[str, object]:
         return {
             "status": "ok",
             "busCount": len(buses),
@@ -80,7 +80,7 @@ def build_app(
         }
 
     @app.get("/api/v1/reg/{terminal_id}/{bus_id}/{slave_addr}")
-    def read_slave(terminal_id: str, bus_id: str, slave_addr: int) -> dict:
+    def read_slave(terminal_id: str, bus_id: str, slave_addr: int) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
         try:
             registers = bus.store.snapshot(slave_addr)
@@ -97,7 +97,7 @@ def build_app(
     @app.put("/api/v1/reg/{terminal_id}/{bus_id}/{slave_addr}/{addr}")
     def write_register(
         terminal_id: str, bus_id: str, slave_addr: int, addr: int, body: RegisterWrite
-    ) -> dict:
+    ) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
         try:
             bus.store.write(slave_addr, addr, body.value)
@@ -108,9 +108,9 @@ def build_app(
     @app.put("/api/v1/reg/{terminal_id}/{bus_id}/{slave_addr}")
     def write_points(
         terminal_id: str, bus_id: str, slave_addr: int, body: PointWriteBatch
-    ) -> dict:
+    ) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
-        written = []
+        written: list[dict[str, object]] = []
         try:
             device = bus.store.device(slave_addr)
             by_code = {p.code: p for p in device.points}
@@ -132,7 +132,7 @@ def build_app(
         return {"ok": True, "slaveAddr": slave_addr, "points": written}
 
     @app.post("/api/v1/offline/{terminal_id}/{bus_id}/{slave_addr}")
-    def go_offline(terminal_id: str, bus_id: str, slave_addr: int) -> dict:
+    def go_offline(terminal_id: str, bus_id: str, slave_addr: int) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
         try:
             bus.state.go_offline(slave_addr)
@@ -141,7 +141,7 @@ def build_app(
         return {"ok": True, "offline": sorted(bus.state.snapshot()["offline"])}
 
     @app.post("/api/v1/online/{terminal_id}/{bus_id}/{slave_addr}")
-    def go_online(terminal_id: str, bus_id: str, slave_addr: int) -> dict:
+    def go_online(terminal_id: str, bus_id: str, slave_addr: int) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
         try:
             bus.state.go_online(slave_addr)
@@ -152,7 +152,7 @@ def build_app(
     @app.post("/api/v1/fault/{terminal_id}/{bus_id}/{slave_addr}")
     def inject_fault(
         terminal_id: str, bus_id: str, slave_addr: int, body: FaultRequest
-    ) -> dict:
+    ) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
         try:
             plan = parse_plan(body.mode, body.count, body.exceptionCode)
@@ -162,13 +162,13 @@ def build_app(
         return {"ok": True, "faults": bus.state.snapshot()["faults"]}
 
     @app.delete("/api/v1/fault/{terminal_id}/{bus_id}")
-    def clear_faults(terminal_id: str, bus_id: str) -> dict:
+    def clear_faults(terminal_id: str, bus_id: str) -> dict[str, object]:
         bus = bus_of(terminal_id, bus_id)
         bus.state.clear_faults()
         return {"ok": True, "faults": {}}
 
     @app.post("/api/v1/scene/{name}")
-    def apply_scene(name: str) -> dict:
+    def apply_scene(name: str) -> dict[str, object]:
         """把工况预设写到全部总线的从站上。
 
         路径不带终端维度（接口规范 §12.1）：工况是演示用的全局动作，
@@ -180,7 +180,7 @@ def build_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 
-        applied = []
+        applied: list[dict[str, object]] = []
         for key in sorted(buses):
             bus = buses[key]
             try:

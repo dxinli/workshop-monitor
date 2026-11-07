@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from point_table import Bus, Device, Point
 from pymodbus.datastore import (
     ModbusSequentialDataBlock,
@@ -26,9 +28,9 @@ class RegisterStore:
     """一条总线的寄存器。按从站地址分区，地址空间互相独立。"""
 
     def __init__(self, bus: Bus) -> None:
-        self._bus = bus
-        self._slaves = {d.slave_addr: d for d in bus.devices}
-        self._contexts = {
+        self._bus: Bus = bus
+        self._slaves: dict[int, Device] = {d.slave_addr: d for d in bus.devices}
+        self._contexts: dict[int, ModbusSlaveContext] = {
             d.slave_addr: ModbusSlaveContext(
                 # zero_mode=True：点表里的 0x0000 就是协议地址 0，不额外 +1。
                 # 模拟器若默认加 1，读回值会整体错位一格，而错位在数值上看起来"合理"，
@@ -38,7 +40,9 @@ class RegisterStore:
             )
             for d in bus.devices
         }
-        self._context = ModbusServerContext(slaves=self._contexts, single=False)
+        self._context: ModbusServerContext = ModbusServerContext(
+            slaves=self._contexts, single=False
+        )
 
     @property
     def context(self) -> ModbusServerContext:
@@ -58,9 +62,13 @@ class RegisterStore:
         ):
             raise ValueError(
                 f"从站 {slave_addr} 的寄存器 {addr}~{addr + count - 1} 超出块 "
-                f"{device.start_addr}~{device.end_addr}"
+                + f"{device.start_addr}~{device.end_addr}"
             )
-        return [int(v) for v in self._contexts[slave_addr].getValues(3, addr, count)]
+        raw = cast(
+            "list[int]",
+            self._contexts[slave_addr].getValues(3, addr, count),
+        )
+        return [int(v) for v in raw]
 
     def write(self, slave_addr: int, addr: int, value: int) -> None:
         self.write_many(slave_addr, addr, [value])
@@ -75,11 +83,11 @@ class RegisterStore:
         ):
             raise ValueError(
                 f"从站 {slave_addr} 的寄存器 {addr}~{addr + len(values) - 1} 超出块 "
-                f"{device.start_addr}~{device.end_addr}"
+                + f"{device.start_addr}~{device.end_addr}"
             )
         self._contexts[slave_addr].setValues(3, addr, values)
 
-    def snapshot(self, slave_addr: int) -> list[dict]:
+    def snapshot(self, slave_addr: int) -> list[dict[str, object]]:
         device = self.device(slave_addr)
         values = self.read(slave_addr, device.start_addr, device.register_count)
         return [
@@ -111,10 +119,12 @@ def _midpoint_raw(point: Point) -> int:
     mid = (point.min_value + point.max_value) / 2
     raw = round((mid - point.offset) / point.scale)
     bits = TYPE_BITS[point.data_type]
+    # 用移位而不是 2**n：typeshed 里 int ** int 的类型是 Any（负指数会得 float），
+    # 值对非负指数完全相同。
     low, high = (
-        (-(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+        (-(1 << (bits - 1)), (1 << (bits - 1)) - 1)
         if point.data_type.startswith("int")
-        else (0, 2**bits - 1)
+        else (0, (1 << bits) - 1)
     )
     return max(low, min(high, int(raw)))
 

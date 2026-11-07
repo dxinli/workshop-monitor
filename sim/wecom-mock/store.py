@@ -16,6 +16,8 @@ FastAPI 的同步端点跑在线程池里，真的会并发进到这里。
 
 from __future__ import annotations
 
+from typing import Any
+
 import sqlite3
 import threading
 from dataclasses import asdict, dataclass
@@ -84,7 +86,7 @@ class Record:
     alarmId: str | None
     content: str
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -92,13 +94,13 @@ class RecordStore:
     """记录的落库与查询。`path` 为 `":memory:"` 时纯内存，测试用。"""
 
     def __init__(self, path: str) -> None:
-        self._lock = threading.Lock()
-        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._lock: threading.Lock = threading.Lock()
+        self._conn: sqlite3.Connection = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         if path != ":memory:":
             # WAL 让「页面读」不阻塞「投递写」，演示时页面开着也不会卡住接收。
-            self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.executescript(_SCHEMA)
+            _ = self._conn.execute("PRAGMA journal_mode=WAL")
+        _ = self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
     def close(self) -> None:
@@ -121,7 +123,7 @@ class RecordStore:
                 "SELECT retry_count FROM record WHERE notify_id = ?", (card.notifyId,)
             ).fetchone()
             if existing is None:
-                self._conn.execute(
+                _ = self._conn.execute(
                     """
                     INSERT INTO record (notify_id, channel, status, retry_count, http_code,
                                         sent_time, level, level_text, workshop, terminal_id,
@@ -155,7 +157,7 @@ class RecordStore:
                 )
                 duplicate = False
             else:
-                self._conn.execute(
+                _ = self._conn.execute(
                     "UPDATE record SET retry_count = retry_count + 1 WHERE notify_id = ?",
                     (card.notifyId,),
                 )
@@ -182,7 +184,7 @@ class RecordStore:
     def clear(self) -> None:
         """清空全部记录。验收脚本要能重复跑，每次从零开始。"""
         with self._lock:
-            self._conn.execute("DELETE FROM record")
+            _ = self._conn.execute("DELETE FROM record")
             self._conn.commit()
 
 

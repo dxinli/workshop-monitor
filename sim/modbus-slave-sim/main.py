@@ -21,6 +21,7 @@ import logging
 import signal
 from collections.abc import Generator
 from pathlib import Path
+from typing import cast
 
 import scenes as scene_presets
 import uvicorn
@@ -36,14 +37,18 @@ DEFAULT_HTTP_PORT = 8080
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Modbus RTU 从站模拟器")
-    parser.add_argument("--config", default="config/terminals", help="终端点表目录")
-    parser.add_argument("--ports", default=".pty/ports.json", help="端点表 JSON")
-    parser.add_argument("--scenes", default="config/scenes.json", help="工况预设 JSON")
-    parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="控制接口地址")
-    parser.add_argument(
+    _ = parser.add_argument(
+        "--config", default="config/terminals", help="终端点表目录"
+    )
+    _ = parser.add_argument("--ports", default=".pty/ports.json", help="端点表 JSON")
+    _ = parser.add_argument(
+        "--scenes", default="config/scenes.json", help="工况预设 JSON"
+    )
+    _ = parser.add_argument("--host", default=DEFAULT_HTTP_HOST, help="控制接口地址")
+    _ = parser.add_argument(
         "--port", type=int, default=DEFAULT_HTTP_PORT, help="控制接口端口"
     )
-    parser.add_argument("--log-level", default="INFO", help="日志级别")
+    _ = parser.add_argument("--log-level", default="INFO", help="日志级别")
     return parser.parse_args(argv)
 
 
@@ -51,12 +56,13 @@ def load_ports(path: Path, buses: list[Bus]) -> dict[str, str]:
     if not path.is_file():
         raise SystemExit(f"缺少端点表 {path}，先执行 scripts/setup-pty.sh")
     with path.open(encoding="utf-8") as fh:
-        raw = json.load(fh)
+        raw = cast(object, json.load(fh))
     if not isinstance(raw, dict):
         raise SystemExit(f"{path}: 顶层必须是对象，键为 terminalId.busId")
+    raw_map = cast(dict[str, object], raw)
     ports: dict[str, str] = {}
     for bus in buses:
-        port = raw.get(bus.key)
+        port = raw_map.get(bus.key)
         if not isinstance(port, str) or not port:
             raise SystemExit(f"{path}: 缺少总线 {bus.key} 的端点")
         ports[bus.key] = port
@@ -76,12 +82,20 @@ class ControlApiServer(uvicorn.Server):
 
 
 async def run(args: argparse.Namespace) -> int:
+    # argparse 的属性在 typeshed 里是 Any，先收窄成具体类型再用。
+    scenes_path = cast(str, args.scenes)
+    config_path = cast(str, args.config)
+    ports_path = cast(str, args.ports)
+    host = cast(str, args.host)
+    port = cast(int, args.port)
+    log_level = cast(str, args.log_level)
+
     # 场景文件在启动时读一次。缺文件即终止：启动成功但场景切换 404，
     # 现场会以为是模拟器坏了，而实际是少挂了一个配置。
-    scenes = scene_presets.load(Path(args.scenes))
-    tables = load_tree(Path(args.config))
+    scenes = scene_presets.load(Path(scenes_path))
+    tables = load_tree(Path(config_path))
     buses = [bus for table in tables for bus in table.buses]
-    ports = load_ports(Path(args.ports), buses)
+    ports = load_ports(Path(ports_path), buses)
     servers = {bus.key: BusServer(bus, ports[bus.key]) for bus in buses}
 
     for server in servers.values():
@@ -91,9 +105,9 @@ async def run(args: argparse.Namespace) -> int:
     app = build_app(servers, scenes)
     config = uvicorn.Config(
         app,
-        host=args.host,
-        port=args.port,
-        log_level=args.log_level.lower(),
+        host=host,
+        port=port,
+        log_level=log_level.lower(),
         access_log=False,
     )
     http = ControlApiServer(config)
@@ -108,9 +122,9 @@ async def run(args: argparse.Namespace) -> int:
             break
 
     http_task = asyncio.create_task(http.serve(), name="control-api")
-    log.info("控制接口 http://%s:%d，共 %d 条总线", args.host, args.port, len(servers))
+    log.info("控制接口 http://%s:%d，共 %d 条总线", host, port, len(servers))
 
-    await stop.wait()
+    _ = await stop.wait()
     log.info("收到退出信号，停止模拟器")
     http.should_exit = True
     await http_task
@@ -121,8 +135,9 @@ async def run(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    log_level = cast(str, args.log_level)
     logging.basicConfig(
-        level=args.log_level.upper(),
+        level=log_level.upper(),
         format="ts=%(asctime)s level=%(levelname)s svc=modbus-slave-sim msg=%(message)s",
     )
     try:
