@@ -119,7 +119,7 @@ def apply_seed() -> None:
     out = subprocess.run(
         ["docker", "exec", "-i", "deploy-timescaledb-1", "sh", "-c",
          'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1'],
-        input=sql, text=True, capture_output=True)
+        check=False, input=sql, text=True, capture_output=True)
     if out.returncode != 0:
         raise RuntimeError(f"应用种子失败：{out.stderr.strip()[:300]}")
 
@@ -374,7 +374,7 @@ def case_ac19() -> dict[str, Any]:
     _ = subprocess.run(["bin/config-tool", "seed"], cwd=ROOT, check=True, capture_output=True)
     apply_seed()
     diff = subprocess.run(["git", "status", "--short", "--", "config/", "deploy/"],
-                          cwd=ROOT, capture_output=True, text=True).stdout.strip()
+                          check=False, cwd=ROOT, capture_output=True, text=True).stdout.strip()
     ok = bool(before) and (not after) and not diff
     return {"case": "AC-19", "passed": ok, "point": VIB_POINT,
             "before": {"threshold": 4.5, "alarms": len(before)},
@@ -578,7 +578,7 @@ def case_ac15() -> dict[str, Any]:
     """AC-15 按终端隔离发布权限：broker ACL 脚本 + 库角色矩阵。"""
     _ = subprocess.run(["bash", "scripts/gen-passwd.sh", str(base_env)], cwd=ROOT,
                    check=True, capture_output=True)
-    run = subprocess.run(["bash", "scripts/verify-broker.sh", str(base_env)], cwd=ROOT,
+    run = subprocess.run(["bash", "scripts/verify-broker.sh", str(base_env)], check=False, cwd=ROOT,
                          capture_output=True, text=True)
     _ = (EV / "AC-15.txt").write_text(
         "$ scripts/verify-broker.sh\n" + run.stdout + run.stderr, encoding="utf-8")
@@ -599,10 +599,10 @@ def case_ac15() -> dict[str, Any]:
 
 def case_ac20() -> dict[str, Any]:
     """AC-20 换协议不影响其他组件：import 边界机器检查 + seam 清单。"""
-    lint = subprocess.run(["make", "lint"], cwd=ROOT, capture_output=True, text=True)
+    lint = subprocess.run(["make", "lint"], check=False, cwd=ROOT, capture_output=True, text=True)
     depguard = subprocess.run(
         ["grep", "-A", "12", "depguard:", str(ROOT / ".golangci.yml")],
-        capture_output=True, text=True).stdout
+        check=False, capture_output=True, text=True).stdout
     _ = (EV / "AC-20.txt").write_text(
         "$ make lint\n" + lint.stdout + lint.stderr + "\n--- depguard 规则 ---\n" + depguard,
         encoding="utf-8")
@@ -618,14 +618,14 @@ def collect_mvs() -> dict[str, Any]:
     """MV-03/05/06/07/09/10：归集既有证据 + 现场可测项。"""
     refresh = subprocess.run(
         ["grep", "-rho", '"refresh": "5s"', str(ROOT / "deploy/grafana/dashboards")],
-        capture_output=True, text=True).stdout.count("5s")
+        check=False, capture_output=True, text=True).stdout.count("5s")
     jobs = rows_json(
         "SELECT job_id, proc_name, config->>'drop_after' AS drop_after "
         + "FROM timescaledb_information.jobs WHERE proc_name = 'policy_retention'")
     dbsize = psql("SELECT pg_size_pretty(pg_database_size(current_database()))")
-    df = subprocess.run(["docker", "system", "df"], capture_output=True, text=True).stdout
+    df = subprocess.run(["docker", "system", "df"], check=False, capture_output=True, text=True).stdout
     stats = subprocess.run(["docker", "stats", "--no-stream", "--format",
-                            "{{.Name}} {{.MemUsage}}"], capture_output=True, text=True).stdout
+                            "{{.Name}} {{.MemUsage}}"], check=False, capture_output=True, text=True).stdout
     _ = (EV / "MV-10.txt").write_text(df + "\n--- 内存 ---\n" + stats, encoding="utf-8")
     return {"MV-03": {"passed": refresh >= 8, "panelsRefresh5s": refresh,
                       "evidence": "deploy/grafana/dashboards/*.json 的 refresh 字段"},

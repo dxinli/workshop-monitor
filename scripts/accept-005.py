@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import signal
 import subprocess
@@ -215,7 +216,7 @@ def case_period(agent: str, config: str, ports: str, results: list[dict[str, obj
     log = run_agent(agent, config, ports, seconds=17)
     rows = batches(log, bus="A")
     stamps = sorted({int(r["collectTime"]) for r in rows})
-    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    gaps = [b - a for a, b in itertools.pairwise(stamps)]
     drift = [g for g in gaps if abs(g - PERIOD_MS) > PERIOD_TOLERANCE_MS]
     expect(len(stamps) >= 3 and not drift, "采集周期稳定 5 秒",
            f"周期数 {len(stamps)}，间隔 {gaps} ms" if drift or len(stamps) < 3
@@ -291,7 +292,7 @@ def case_bus_independence(agent: str, config: str, ports: str, results: list[dic
 
     b_stamps = sorted({int(r["collectTime"]) for r in batches(log, bus="B")})
     a_stamps = sorted({int(r["collectTime"]) for r in batches(log, bus="A")})
-    b_gaps = [y - x for x, y in zip(b_stamps, b_stamps[1:])]
+    b_gaps = [y - x for x, y in itertools.pairwise(b_stamps)]
 
     # 判据两半：B 的间隔始终在 5 秒容差内（没被拖慢），且 A 同一时段明显更少周期
     # （注入确实生效，否则「B 正常」可能只是因为 A 根本没被卡住）。
@@ -332,7 +333,7 @@ def case_reject_bad_config(agent: str, config: str, ports: str, results: list[di
     _ = broken.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     proc = subprocess.run([agent, "-config", str(broken), "-ports", ports],
-                          capture_output=True, text=True, timeout=20)
+                          check=False, capture_output=True, text=True, timeout=20)
     out = proc.stdout + proc.stderr
     issue = next((ln for ln in out.splitlines() if "V-05" in ln), "")
     ok = proc.returncode != 0 and "V-05" in out and "scale" in out

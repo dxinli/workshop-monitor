@@ -24,6 +24,7 @@ collectTime 保留、sendTime 更新、backfill=true、PUBACK 才出队。
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -64,7 +65,7 @@ def load_env(path: Path) -> dict[str, str]:
 
 
 def docker(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["docker", *args], capture_output=True, text=True)
+    return subprocess.run(["docker", *args], check=False, capture_output=True, text=True)
 
 
 def stop_broker() -> None:
@@ -203,7 +204,7 @@ def case_broker_down_keeps_collecting(agent: str, config: str, ports: str,
     batches = [r for r in records if r.get("msg") == "采集周期完成"]
     while_down = [r for r in batches if r.get("ts", 0) / 1000 >= stopped_at]
     stamps = sorted({r["collectTime"] for r in while_down})
-    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    gaps = [b - a for a, b in itertools.pairwise(stamps)]
     queued = sum(1 for r in records if r.get("msg") == "上行失败，已落本地队列")
 
     ok = len(stamps) >= 3 and all(abs(g - PERIOD_MS) <= 700 for g in gaps) and queued >= 3

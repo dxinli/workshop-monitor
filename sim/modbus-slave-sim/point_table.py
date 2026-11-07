@@ -92,7 +92,7 @@ def load_terminal(path: Path) -> PointTable:
     with path.open(encoding="utf-8") as fh:
         loaded = cast(object, json.load(fh))
     if not isinstance(loaded, dict):
-        raise ValueError(f"{path}: 顶层必须是对象")
+        raise TypeError(f"{path}: 顶层必须是对象")
     raw = cast(dict[str, object], loaded)
     where = str(path)
     terminal_id = _str(raw, "terminalId", where)
@@ -205,7 +205,7 @@ def _req(raw: Mapping[str, object], key: str, where: str) -> object:
 def _int(raw: Mapping[str, object], key: str, where: str) -> int:
     value = _req(raw, key, where)
     if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise ValueError(f"{where}: {key} 必须是整数，实际 {value!r}")
+        raise TypeError(f"{where}: {key} 必须是整数，实际 {value!r}")
     return int(value)
 
 
@@ -214,20 +214,24 @@ def _float(
 ) -> float:
     value = _req(raw, key, where) if default is None else raw.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int | float | str):
-        raise ValueError(f"{where}: {key} 必须是数值，实际 {value!r}")
+        raise TypeError(f"{where}: {key} 必须是数值，实际 {value!r}")
     return float(value)
 
 
 def _str(raw: Mapping[str, object], key: str, where: str) -> str:
     value = _req(raw, key, where)
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str):
+        raise TypeError(f"{where}: {key} 必须是字符串，实际 {value!r}")
+    if not value:
         raise ValueError(f"{where}: {key} 必须是非空字符串")
     return value
 
 
 def _list(raw: Mapping[str, object], key: str, where: str) -> list[object]:
     value = _req(raw, key, where)
-    if not isinstance(value, list) or not value:
+    if not isinstance(value, list):
+        raise TypeError(f"{where}: {key} 必须是数组，实际 {value!r}")
+    if not value:
         raise ValueError(f"{where}: {key} 必须是非空数组")
     return cast(list[object], value)
 
@@ -239,6 +243,6 @@ def _obj_list(
     out: list[Mapping[str, object]] = []
     for index, item in enumerate(_list(raw, key, where)):
         if not isinstance(item, dict):
-            raise ValueError(f"{where}: {key}[{index}] 必须是对象")
+            raise TypeError(f"{where}: {key}[{index}] 必须是对象")
         out.append(cast(dict[str, object], item))
     return out

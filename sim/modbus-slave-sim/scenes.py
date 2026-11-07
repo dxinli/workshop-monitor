@@ -53,23 +53,31 @@ def load(path: Path) -> SceneSet:
     """读 scenes.json。结构不对就抛错，不静默取默认值——场景错了整场演示都是错的。"""
     raw = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
     scenes_raw = raw.get("scenes")
-    if not isinstance(scenes_raw, dict) or not scenes_raw:
+    if scenes_raw is None:
+        raise ValueError(f"{path}: 缺少非空的 scenes")
+    if not isinstance(scenes_raw, dict):
+        raise TypeError(f"{path}: scenes 必须是对象，实际 {scenes_raw!r}")
+    if not scenes_raw:
         raise ValueError(f"{path}: 缺少非空的 scenes")
     scenes_map = cast(dict[str, object], scenes_raw)
 
     scenes: dict[str, Scene] = {}
     for name, body in scenes_map.items():
         if not isinstance(body, dict):
-            raise ValueError(f"{path}: 工况 {name} 不是对象")
+            raise TypeError(f"{path}: 工况 {name} 必须是对象，实际 {body!r}")
         body_map = cast(dict[str, object], body)
         points = body_map.get("points")
-        if not isinstance(points, dict) or not points:
+        if points is None:
+            raise ValueError(f"{path}: 工况 {name} 缺少非空的 points")
+        if not isinstance(points, dict):
+            raise TypeError(f"{path}: 工况 {name} 的 points 必须是对象，实际 {points!r}")
+        if not points:
             raise ValueError(f"{path}: 工况 {name} 缺少非空的 points")
         points_map = cast(dict[str, object], points)
         converted: dict[str, float] = {}
         for code, value in points_map.items():
             if not isinstance(value, (int, float)) or isinstance(value, bool):
-                raise ValueError(
+                raise TypeError(
                     f"{path}: 工况 {name} 的测点 {code} 值不是数字：{value!r}"
                 )
             converted[code] = float(value)
@@ -81,7 +89,11 @@ def load(path: Path) -> SceneSet:
         )
 
     config_version = raw.get("configVersion")
-    if not isinstance(config_version, str) or not config_version:
+    if config_version is None:
+        raise ValueError(f"{path}: 缺少 configVersion")
+    if not isinstance(config_version, str):
+        raise TypeError(f"{path}: configVersion 必须是字符串，实际 {config_version!r}")
+    if not config_version:
         raise ValueError(f"{path}: 缺少 configVersion")
     return SceneSet(config_version=config_version, scenes=scenes)
 

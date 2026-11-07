@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import re
@@ -314,7 +315,7 @@ def case_seq_monotonic(agent: str, config: str, ports: str, tmp: Path,
         return
 
     second = all_seqs[len(first):]
-    monotonic = all(b > a for a, b in zip(all_seqs, all_seqs[1:]))
+    monotonic = all(b > a for a, b in itertools.pairwise(all_seqs))
     continued = min(second) > max(first)
     expect(monotonic and continued, "序号单调递增且重启不归零",
            f"第一次运行末条 seq={max(first)}，重启后首条 seq={min(second)}"
@@ -490,7 +491,7 @@ def compose(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]
     return subprocess.run(
         ["docker", "compose", "-f", "deploy/docker-compose.yml",
          "--env-file", "deploy/versions.env", "--env-file", ".env", *args],
-        capture_output=True, text=True, env=env,
+        check=False, capture_output=True, text=True, env=env,
     )
 
 
@@ -505,7 +506,7 @@ def restart_broker(env: dict[str, str], scheme: str) -> None:
         probe = subprocess.run(
             ["docker", "exec", BROKER_CONTAINER, "mosquitto_pub",
              "-h", "127.0.0.1", "-p", "1883", "-t", "/probe", "-m", "x"],
-            capture_output=True, text=True,
+            check=False, capture_output=True, text=True,
         )
         # 匿名发布被拒（退出码非 0）说明 Broker 已经在按 ACL 拒绝，
         # 这正是「就绪」的信号——还没起来的 Broker 会连接被拒。

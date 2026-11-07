@@ -13,11 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import card  # noqa: E402
-import store  # noqa: E402
+import card
+import store
 
 # 期望值不取自实现：
 #   - 时间串由 `zoneinfo.ZoneInfo("Asia/Shanghai")` 独立换算得出（实现里用的是
@@ -216,7 +217,7 @@ class TestNotifyCardValidation:
     def test_missing_top_level_field_rejected(self, field: str):
         payload = _payload()
         payload.pop(field)
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             _ = card.NotifyCard(**payload)
 
     @pytest.mark.parametrize("field", ["level", "workshop", "terminalId", "pointText",
@@ -226,20 +227,20 @@ class TestNotifyCardValidation:
         alarm.pop(field)
         payload = _payload()
         payload["alarm"] = alarm
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             _ = card.NotifyCard(**payload)
 
     @pytest.mark.parametrize("value", [0, 5])
     def test_level_outside_one_to_four_rejected(self, value: int):
         payload = _payload()
         payload["alarm"]["level"] = value
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             _ = card.NotifyCard(**payload)
 
     def test_unknown_msgtype_rejected(self):
         payload = _payload()
         payload["msgtype"] = "text"
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             _ = card.NotifyCard(**payload)
 
     def test_threshold_and_alarm_id_may_be_absent(self):

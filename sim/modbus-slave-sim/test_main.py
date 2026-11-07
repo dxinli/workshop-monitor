@@ -14,7 +14,7 @@ import uvicorn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import main  # noqa: E402
+import main
 
 
 def test_capture_signals_does_not_replace_handlers():

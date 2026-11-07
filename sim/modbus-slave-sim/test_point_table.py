@@ -14,8 +14,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import point_table  # noqa: E402
-from registers import RegisterStore  # noqa: E402
+import point_table
+from registers import RegisterStore
 
 ROOT = Path(__file__).resolve().parents[2]
 

@@ -15,8 +15,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import scenes  # noqa: E402
-from point_table import Bus, Device, Point, load_tree  # noqa: E402
+import scenes
+from point_table import Bus, Device, Point, load_tree
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -122,7 +122,7 @@ class TestLoad:
             json.dumps({"configVersion": "1.0.0", "scenes": {"x": {"points": {"door": True}}}}),
             encoding="utf-8",
         )
-        with pytest.raises(ValueError, match="不是数字"):
+        with pytest.raises(TypeError, match="不是数字"):
             _ = scenes.load(path)
 
 

@@ -39,7 +39,7 @@ from http.client import HTTPResponse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
-from typing import cast, override
+from typing import ClassVar, Self, cast, override
 
 DB = "deploy-timescaledb-1"
 IMAGE = "workshop-monitor/node-red:4.0.5"
@@ -124,7 +124,7 @@ class NodeRed:
         self.webhook: str = webhook
         self.enabled: str = enabled
 
-    def __enter__(self) -> "NodeRed":
+    def __enter__(self) -> Self:
         _ = docker("rm", "-f", self.name, check=False)
         cmd = [
             "docker", "run", "-d", "--name", self.name, "--network", "deploy_default",
@@ -163,7 +163,7 @@ class NodeRed:
 class Echo(BaseHTTPRequestHandler):
     """只记数，不解析：第 6 条要证的是「投到了另一个地址」，不是解析能力。"""
 
-    hits: list[str] = []
+    hits: ClassVar[list[str]] = []
 
     def do_POST(self) -> None:
         n = int(self.headers.get("content-length", 0))
@@ -174,7 +174,7 @@ class Echo(BaseHTTPRequestHandler):
         _ = self.wfile.write(b'{"errcode":0,"errmsg":"ok"}')
 
     @override
-    def log_message(self, format: str, *args: object) -> None:  # noqa: D102 —— 静音访问日志
+    def log_message(self, format: str, *args: object) -> None:
         del format, args
 
 
@@ -220,7 +220,7 @@ def case_config_in_env(_env: dict[str, str]) -> tuple[bool, str]:
     if ".env" not in gitignore:
         problems.append(".env 不在 .gitignore")
     tracked = subprocess.run(["git", "ls-files", "--error-unmatch", ".env"],
-                             capture_output=True, text=True)
+                             check=False, capture_output=True, text=True)
     if tracked.returncode == 0:
         problems.append(".env 被版本库跟踪")
     # 排除检查脚本自身：它们必须写出这些特征串才能找它们。
@@ -246,7 +246,7 @@ def case_config_in_env(_env: dict[str, str]) -> tuple[bool, str]:
 def case_connectivity_check_script(_env: dict[str, str]) -> tuple[bool, str]:
     """scripts/check-notify.sh 能跑通并输出结果。"""
     del _env  # CASES 统一签名，本用例不碰运行环境
-    out = subprocess.run(["bash", "scripts/check-notify.sh"], capture_output=True, text=True)
+    out = subprocess.run(["bash", "scripts/check-notify.sh"], check=False, capture_output=True, text=True)
     tail = [ln for ln in out.stdout.splitlines() if ln.strip().startswith(("ok", "FAIL"))]
     if out.returncode != 0:
         return False, "check-notify.sh 退出码非 0：" + "；".join(tail)

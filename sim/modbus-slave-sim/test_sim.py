@@ -13,8 +13,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import faults  # noqa: E402
-import rtu  # noqa: E402
+import faults
+import rtu
 
 # 期望值取自 Modbus 应用协议规范 v1.1b3 的公开样例，不由实现推算：
 #   §6.12 例 2 读请求：从站 0x11、FC03、地址 0x006B、数量 3，线上 CRC 字节 = 76 87

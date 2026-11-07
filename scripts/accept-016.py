@@ -39,7 +39,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from http.client import HTTPResponse
+from http.client import HTTPException, HTTPResponse
 from pathlib import Path
 from typing import cast
 
@@ -147,12 +147,15 @@ def http_json(url: str, timeout: float = 5.0) -> tuple[int, dict[str, object]]:
             payload = cast(dict[str, object], json.loads(r.read().decode()))
             return r.status, payload
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode()
+        body = exc.read()
         try:
             return exc.code, cast(dict[str, object], json.loads(body))
-        except json.JSONDecodeError:
-            return exc.code, {"_raw": body}
-    except Exception as exc:
+        except ValueError:
+            return exc.code, {"_raw": body.decode(errors="replace")}
+    except (urllib.error.URLError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        return 0, {"_error": f"request failed: {reason}"}
+    except (OSError, ValueError, HTTPException) as exc:
         return 0, {"_error": str(exc)}
 
 
@@ -405,8 +408,11 @@ def case_sample_matches_simulator() -> tuple[bool, str]:
     try:
         with urllib.request.urlopen(req, timeout=5):
             pass
-    except Exception as exc:
+    except (urllib.error.URLError, TimeoutError) as exc:
         return False, f"写模拟器寄存器失败：{exc}"
+    except Exception as exc:  # noqa: BLE001  兜底
+        return False, f"写模拟器寄存器失败（意外错误）：{exc}"
+
     time.sleep(12)  # 两个采集周期以上
 
     after = int(psql("SELECT count(*) FROM monitor.measurement") or 0)

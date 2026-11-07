@@ -296,11 +296,11 @@ def _imported_modules(source: Path) -> set[str]:
 
 def _go_imports(source: Path) -> set[str]:
     text = source.read_text(encoding="utf-8")
-    match = re.search(r"^import\s*\((.*?)^\)", text, re.S | re.M)
+    match = re.search(r"^import\s*\((.*?)^\)", text, re.DOTALL | re.MULTILINE)
     if match:
         paths = re.findall(r'"([^"]+)"', match.group(1))
     else:
-        single = re.search(r'^import\s+(?:\w+\s+)?"([^"]+)"', text, re.M)
+        single = re.search(r'^import\s+(?:\w+\s+)?"([^"]+)"', text, re.MULTILINE)
         paths = [single.group(1)] if single else []
     return set(paths)
 
